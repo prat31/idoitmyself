@@ -1,0 +1,98 @@
+name: idim
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: idim-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: idim_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - idim_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d idim_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: idim-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./src/backend
+      dockerfile: Dockerfile
+    image: idim-api:latest
+    container_name: idim-api
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./src/backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/idim_db
+      - REDIS_URL=redis://redis:6379/0
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - ENVIRONMENT=development
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./src/backend
+      dockerfile: Dockerfile
+    image: idim-worker:latest
+    container_name: idim-worker
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app.celery_app worker --loglevel=info
+    volumes:
+      - ./src/backend:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/idim_db
+      - REDIS_URL=redis://redis:6379/0
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - ENVIRONMENT=development
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    image: idim-web:latest
+    container_name: idim-web
+    restart: unless-stopped
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    volumes:
+      - ./src/frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://api:8000
+    depends_on:
+      - api
+
+volumes:
+  idim_postgres_data:
