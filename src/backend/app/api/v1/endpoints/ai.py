@@ -1,4 +1,3 @@
-from typing import List, Optional
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -14,8 +13,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatStreamRequest(BaseModel):
-    messages: List[ChatMessage]
-    model: Optional[str] = None
+    messages: list[ChatMessage]
+    model: str | None = None
 
 
 @router.post("/chat/stream")
@@ -24,5 +23,5 @@ async def chat_stream(request: ChatStreamRequest):
     serialized_messages = [msg.model_dump() for msg in request.messages]
     return StreamingResponse(
         ai_service.stream_chat_completion(serialized_messages, model=request.model),
-        media_type="text/event-stream"
+        media_type="text/event-stream",
     )

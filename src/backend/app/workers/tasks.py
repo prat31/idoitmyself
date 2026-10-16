@@ -1,4 +1,5 @@
 import time
+
 from app.workers.celery_app import celery_app
 
 
@@ -12,8 +13,4 @@ def ping_task() -> str:
 def sample_background_job(job_id: str, duration_seconds: int = 5) -> dict:
     """Demonstration long-running background task."""
     time.sleep(duration_seconds)
-    return {
-        "job_id": job_id,
-        "status": "completed",
-        "duration_seconds": duration_seconds
-    }
+    return {"job_id": job_id, "status": "completed", "duration_seconds": duration_seconds}

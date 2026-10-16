@@ -1,5 +1,6 @@
 import json
-from typing import AsyncGenerator, Dict, Any, List
+from collections.abc import AsyncGenerator
+
 import httpx
 
 from app.core.config import settings
@@ -13,7 +14,7 @@ class AIService:
         self.base_url = settings.OPENROUTER_BASE_URL
         self.default_model = settings.DEFAULT_AI_MODEL
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         headers = {
             "Content-Type": "application/json",
             "HTTP-Referer": "http://localhost:8000",
@@ -24,9 +25,7 @@ class AIService:
         return headers
 
     async def stream_chat_completion(
-        self,
-        messages: List[Dict[str, str]],
-        model: str = None
+        self, messages: list[dict[str, str]], model: str = None
     ) -> AsyncGenerator[str, None]:
         """Stream chat completions from OpenRouter via Server-Sent Events."""
         if not self.api_key:
@@ -44,11 +43,15 @@ class AIService:
                 "POST",
                 f"{self.base_url}/chat/completions",
                 headers=self._get_headers(),
-                json=payload
+                json=payload,
             ) as response:
                 if response.status_code != 200:
                     error_text = await response.aread()
-                    yield f"data: {json.dumps({'error': f'OpenRouter API Error: {response.status_code}', 'detail': error_text.decode()})}\n\n"
+                    error = {
+                        "error": f"OpenRouter API Error: {response.status_code}",
+                        "detail": error_text.decode(),
+                    }
+                    yield f"data: {json.dumps(error)}\n\n"
                     return
 
                 async for line in response.aiter_lines():

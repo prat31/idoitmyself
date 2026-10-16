@@ -43,18 +43,22 @@ flowchart TD
 │   └── decisions/                  # Architectural Decision Records (ADRs)
 │       └── 0001-core-tech-stack...md
 ├── .github/workflows/              # CI/CD (GitHub Pages deployment of the landing page)
-├── docs/                           # (planned) Human-facing technical & user documentation
-│   ├── architecture/               # (planned) Deep-dive technical specs & component designs
+├── docs/                           # Human-facing technical & user documentation
+│   ├── architecture/               # Deep-dive technical specs (data-model.md)
 │   └── guides/                     # (planned) Developer guides, tutorials, onboarding
-├── scripts/                        # (planned) Development, build, and automation utilities
+├── scripts/                        # Development, build, and automation utilities
+│   └── db-init/                    # SQL run when the Postgres container is first created
 ├── src/                            # Application source code
 │   ├── backend/                    # FastAPI application, domain logic, workers
+│   │   ├── migrations/             # Alembic migrations
 │   │   └── app/
-│   │       ├── api/v1/             # API router and endpoints (health, ai)
-│   │       ├── core/               # Settings and database session setup
-│   │       ├── services/           # Business logic (OpenRouter client)
-│   │       ├── workers/            # Celery app and task definitions
-│   │       └── models/             # (planned) SQLAlchemy models & Alembic migrations
+│   │       ├── api/v1/             # API router and endpoints (health, sources, items, ai)
+│   │       ├── core/               # Settings, database setup, error types
+│   │       ├── models/             # SQLAlchemy ORM models
+│   │       ├── schemas/            # Pydantic request/response schemas
+│   │       ├── services/           # Business logic (sources, items, sync, OpenRouter client)
+│   │       ├── sources/            # Source connectors (interface + registry)
+│   │       └── workers/            # Celery app and task definitions
 │   └── frontend/                   # Vite + React (TypeScript) SPA, currently the static landing page
 │       ├── public/                 # Static assets, CNAME for the custom domain
 │       └── src/
@@ -82,7 +86,10 @@ Entries marked *(planned)* are part of the intended layout but do not exist yet;
 * **API Endpoints (`app/api/`)**: Thin routers validating input with Pydantic and delegating to services.
 * **Domain & Services (`app/services/`)**: Business logic and orchestrators for LLM prompts, storage operations, and task dispatches.
 * **AI Client (`app/services/ai_service.py`)**: OpenRouter client wrapper that streams chat completions as Server-Sent Events.
-* **Database Models (`app/models/`, planned)**: SQLAlchemy/SQLModel schemas and migrations (Alembic). The async engine and `get_db` session dependency already live in `app/core/database.py`.
+* **Database Models (`app/models/`)**: SQLAlchemy 2.0 typed models on `Base` from `app/core/database.py`. Schema changes go through Alembic migrations in `migrations/`. See [docs/architecture/data-model.md](../docs/architecture/data-model.md).
+* **Schemas (`app/schemas/`)**: Pydantic models for API input/output, kept separate from ORM models.
+* **Source Connectors (`app/sources/`)**: One `SourceConnector` per source type (Gmail first). Connectors only fetch and normalize data into `FetchedItem`s; `services/sync.py` persists them. See [ADR 0002](decisions/0002-generic-sources-and-items.md).
+* **Errors (`app/core/errors.py`)**: Services raise `AppError` subclasses (`NotFoundError`, `ConflictError`, ...), rendered as `{"error": {"code", "message"}}` by a central handler.
 * **Async Workers (`app/workers/`)**: Celery tasks for heavy computation or background jobs.
 
 ### Frontend (`src/frontend`)

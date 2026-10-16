@@ -13,6 +13,7 @@ services:
       - "5432:5432"
     volumes:
       - idim_postgres_data:/var/lib/postgresql/data
+      - ./scripts/db-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d idim_db"]
       interval: 5s
@@ -38,15 +39,17 @@ services:
     image: idim-api:latest
     container_name: idim-api
     restart: unless-stopped
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     volumes:
       - ./src/backend:/app
+      - ./tests:/tests
     ports:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/idim_db
       - REDIS_URL=redis://redis:6379/0
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/idim_test
       - ENVIRONMENT=development
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000"]
     depends_on:

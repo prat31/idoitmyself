@@ -1,11 +1,12 @@
 from celery import Celery
+
 from app.core.config import settings
 
 celery_app = Celery(
     "idim_worker",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["app.workers.tasks"]
+    include=["app.workers.tasks"],
 )
 
 celery_app.conf.update(

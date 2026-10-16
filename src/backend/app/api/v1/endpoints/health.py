@@ -1,8 +1,9 @@
-from typing import Dict, Any
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
+from typing import Any
+
 import redis.asyncio as aioredis
+from fastapi import APIRouter, Depends
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -10,17 +11,14 @@ from app.core.database import get_db
 router = APIRouter()
 
 
-@router.get("/health", response_model=Dict[str, Any])
+@router.get("/health", response_model=dict[str, Any])
 async def check_health(db: AsyncSession = Depends(get_db)):
     """Comprehensive health check checking API, PostgreSQL, and Redis connectivity."""
     status = {
         "status": "healthy",
         "service": settings.PROJECT_NAME,
         "environment": settings.ENVIRONMENT,
-        "dependencies": {
-            "database": "unknown",
-            "redis": "unknown"
-        }
+        "dependencies": {"database": "unknown", "redis": "unknown"},
     }
 
     # Test Database
@@ -35,7 +33,7 @@ async def check_health(db: AsyncSession = Depends(get_db)):
     try:
         r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
         pong = await r.ping()
-        await r.close()
+        await r.aclose()
         status["dependencies"]["redis"] = "connected" if pong else "unhealthy"
     except Exception as e:
         status["dependencies"]["redis"] = f"unhealthy: {str(e)}"

@@ -60,8 +60,8 @@ docker compose up --build
 .
 ├── .ai/                    # AI Agent knowledge base & context (ADRs, architecture, conventions)
 ├── .github/workflows/      # CI/CD (GitHub Pages deployment)
-├── docs/                   # (planned) Technical specs and developer guides
-├── scripts/                # (planned) Utility and developer automation scripts
+├── docs/                   # Technical specs and developer guides
+├── scripts/                # Utility and developer automation scripts
 ├── src/
 │   ├── backend/            # FastAPI application & Celery workers
 │   └── frontend/           # Vite + React (TypeScript) SPA & static landing
@@ -74,12 +74,49 @@ docker compose up --build
 
 ---
 
+## 📡 API Overview
+
+All endpoints live under `/api/v1`; the full, interactive reference is at `/docs`.
+
+| Endpoint | Purpose |
+| :--- | :--- |
+| `GET /health` | API, database and Redis status |
+| `GET, POST /sources` · `GET, DELETE /sources/{id}` | Configured data sources (Gmail first) |
+| `GET /items?source_id=` · `GET /items/{id}` | Items pulled from sources (emails, for Gmail) |
+| `POST /ai/chat/stream` | Stream an OpenRouter chat completion |
+
+The data model and how to add a new source are described in [docs/architecture/data-model.md](docs/architecture/data-model.md).
+
+---
+
+## 🗄 Database Migrations
+
+The schema is managed by Alembic. The API container applies pending migrations on start. To create one after changing a model:
+```bash
+docker compose run --rm api alembic revision --autogenerate -m "describe the change"
+```
+
+---
+
 ## 🧪 Testing & Build
 
 ### Backend
-Run backend tests inside the container or locally:
+Tests run against a real PostgreSQL database (`idim_test`), which is reset and migrated at the start of each run.
+
+In Docker (the test database is created the first time the `db` volume is initialized; on an existing volume run `docker compose exec db createdb -U postgres idim_test` once):
 ```bash
-docker compose run --rm api pytest
+docker compose run --rm api pytest /tests/backend
+```
+
+Locally (needs Postgres on `localhost:5432`; override with `TEST_DATABASE_URL`):
+```bash
+cd src/backend && python -m venv .venv && .venv/bin/pip install -r requirements.txt ruff
+cd ../.. && src/backend/.venv/bin/pytest tests/backend
+```
+
+Lint and format (configured in `src/backend/pyproject.toml`):
+```bash
+cd src/backend && ruff check . ../../tests && ruff format . ../../tests
 ```
 
 ### Frontend
