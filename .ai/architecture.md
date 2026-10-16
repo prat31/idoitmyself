@@ -42,28 +42,37 @@ flowchart TD
 │   ├── conventions.md              # Coding standards, style, and rules
 │   └── decisions/                  # Architectural Decision Records (ADRs)
 │       └── 0001-core-tech-stack...md
-├── docs/                           # Human-facing technical & user documentation
-│   ├── architecture/               # Deep-dive technical specs & component designs
-│   └── guides/                     # Developer guides, tutorials, onboarding
-├── scripts/                        # Development, build, and automation utilities
+├── .github/workflows/              # CI/CD (GitHub Pages deployment of the landing page)
+├── docs/                           # (planned) Human-facing technical & user documentation
+│   ├── architecture/               # (planned) Deep-dive technical specs & component designs
+│   └── guides/                     # (planned) Developer guides, tutorials, onboarding
+├── scripts/                        # (planned) Development, build, and automation utilities
 ├── src/                            # Application source code
 │   ├── backend/                    # FastAPI application, domain logic, workers
-│   │   ├── app/                    # API routes, core services, database models
-│   │   └── workers/                # Celery task definitions
-│   └── frontend/                   # Vite + React (TypeScript) + shadcn/ui SPA
-│       ├── src/
-│       │   ├── components/         # UI components (shadcn/ui in components/ui)
-│       │   ├── pages/              # Application views / routes
-│       │   ├── lib/                # API client, utilities, hooks
-│       │   └── types/              # TypeScript interfaces and OpenAPI types
+│   │   └── app/
+│   │       ├── api/v1/             # API router and endpoints (health, ai)
+│   │       ├── core/               # Settings and database session setup
+│   │       ├── services/           # Business logic (OpenRouter client)
+│   │       ├── workers/            # Celery app and task definitions
+│   │       └── models/             # (planned) SQLAlchemy models & Alembic migrations
+│   └── frontend/                   # Vite + React (TypeScript) SPA, currently the static landing page
+│       ├── public/                 # Static assets, CNAME for the custom domain
+│       └── src/
+│           ├── components/         # UI components (ParticleBackground)
+│           ├── components/ui/      # (planned) shadcn/ui primitives
+│           ├── pages/              # (planned) Application views / routes
+│           ├── lib/                # (planned) API client, utilities, hooks
+│           └── types/              # (planned) TypeScript interfaces and OpenAPI types
 ├── tests/                          # Automated test suites
 │   ├── backend/                    # Pytest unit & integration tests
-│   └── frontend/                   # Vitest / React Testing Library tests
+│   └── frontend/                   # (planned) Vitest / React Testing Library tests
 ├── docker-compose.yml              # Local container orchestration
 ├── AGENTS.md                       # Agent operational guidelines & repository map
 ├── LICENSE                         # Repository license (MIT)
 └── README.md                       # Project overview & quickstart
 ```
+
+Entries marked *(planned)* are part of the intended layout but do not exist yet; create them when the first file that belongs there is added.
 
 ---
 
@@ -72,14 +81,14 @@ flowchart TD
 ### Backend (`src/backend`)
 * **API Endpoints (`app/api/`)**: Thin routers validating input with Pydantic and delegating to services.
 * **Domain & Services (`app/services/`)**: Business logic and orchestrators for LLM prompts, storage operations, and task dispatches.
-* **AI Client (`app/services/ai.py`)**: OpenRouter client wrapper handling prompt templates, retries, and streaming response generators.
-* **Database Models (`app/models/`)**: SQLAlchemy/SQLModel schemas and migrations (Alembic).
-* **Async Workers (`src/backend/workers/`)**: Celery tasks for heavy computation or background jobs.
+* **AI Client (`app/services/ai_service.py`)**: OpenRouter client wrapper that streams chat completions as Server-Sent Events.
+* **Database Models (`app/models/`, planned)**: SQLAlchemy/SQLModel schemas and migrations (Alembic). The async engine and `get_db` session dependency already live in `app/core/database.py`.
+* **Async Workers (`app/workers/`)**: Celery tasks for heavy computation or background jobs.
 
 ### Frontend (`src/frontend`)
-* **Component Layer (`src/components/ui/`)**: Pure, reusable shadcn/ui primitives.
-* **Feature Views (`src/pages/`)**: Composite page layouts consuming domain services.
-* **API Integration (`src/lib/api.ts`)**: Typed HTTP client communicating with FastAPI endpoints.
+* **Component Layer (`src/components/ui/`, planned)**: Pure, reusable shadcn/ui primitives.
+* **Feature Views (`src/pages/`, planned)**: Composite page layouts consuming domain services.
+* **API Integration (`src/lib/api.ts`, planned)**: Typed HTTP client communicating with FastAPI endpoints.
 
 ---
 

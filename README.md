@@ -60,14 +60,14 @@ docker compose up --build
 .
 ├── .ai/                    # AI Agent knowledge base & context (ADRs, architecture, conventions)
 ├── .github/workflows/      # CI/CD (GitHub Pages deployment)
-├── docs/                   # Technical specs and developer guides
-├── scripts/                # Utility and developer automation scripts
+├── docs/                   # (planned) Technical specs and developer guides
+├── scripts/                # (planned) Utility and developer automation scripts
 ├── src/
 │   ├── backend/            # FastAPI application & Celery workers
 │   └── frontend/           # Vite + React (TypeScript) SPA & static landing
 ├── tests/
 │   ├── backend/            # Pytest test suite
-│   └── frontend/           # Frontend tests
+│   └── frontend/           # (planned) Frontend tests
 ├── docker-compose.yml      # Local container orchestration
 └── README.md
 ```
@@ -87,4 +87,5 @@ Run frontend build & linting:
 ```bash
 cd src/frontend
 npm run build
+npm run lint
 ```

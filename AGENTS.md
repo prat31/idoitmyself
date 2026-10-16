@@ -24,7 +24,7 @@ Always respect the directory boundaries outlined below when creating or modifyin
 ## Core Rules for Agents
 
 1. **Strict File Placement**: Never dump temporary scripts or test files in the root directory. Source code belongs in `src/`, automated tests in `tests/`, and helper scripts in `scripts/`.
-2. **Consult `.ai/` Context First**: Before making architectural changes or introducing patterns, review [.ai/architecture.md](file:///Users/prat/repos/idoitmyself/.ai/architecture.md) and [.ai/conventions.md](file:///Users/prat/repos/idoitmyself/.ai/conventions.md).
+2. **Consult `.ai/` Context First**: Before making architectural changes or introducing patterns, review [.ai/architecture.md](.ai/architecture.md) and [.ai/conventions.md](.ai/conventions.md).
 3. **Document Major Decisions**: When introducing significant libraries, architectural changes, or new paradigms, record the rationale in `.ai/decisions/` as a lightweight ADR.
 4. **Maintain Documentation Parity**: Keep `README.md`, `docs/`, and `.ai/` files synchronized with code changes. If a CLI command, configuration, or API changes, update the relevant documentation immediately.
 5. **Test Coverage**: Accompany all new logic in `src/` with corresponding tests in `tests/`.

@@ -37,9 +37,9 @@ This document defines the coding conventions, style guides, and design patterns 
 ## 3. Frontend Conventions (`src/frontend`)
 
 ### Style & Tooling
-* **Toolchain**: Vite + React 18+ (TypeScript).
-* **Linter & Formatter**: ESLint + Prettier.
-* **Styling**: Tailwind CSS with standard utility classes.
+* **Toolchain**: Vite + React 19 (TypeScript).
+* **Linter**: [oxlint](https://oxc.rs/docs/guide/usage/linter) (`npm run lint`, configured in `.oxlintrc.json`). No formatter is configured yet.
+* **Styling**: Tailwind CSS v4 (via `@tailwindcss/vite`) with standard utility classes.
 
 ### Component Structure
 * **Primitive Components (`src/components/ui/`)**: Managed via `shadcn/ui`. Do not heavily modify standard Radix wrappers unless necessary for theme consistency.
