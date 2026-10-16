@@ -3,33 +3,50 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.errors import NotFoundError
 from app.models.item import Item
+from app.models.label import ItemLabel, Label
 from app.models.source import Source
+from app.services.labels import ensure_labeled
 from app.sources.base import FetchedItem
+
+_with_labels = selectinload(Item.label_links).selectinload(ItemLabel.label)
 
 
 async def list_items(
     session: AsyncSession,
     *,
     source_id: uuid.UUID | None = None,
+    label_slug: str | None = None,
     limit: int,
     offset: int,
 ) -> tuple[list[Item], int]:
     query = select(Item)
     if source_id is not None:
         query = query.where(Item.source_id == source_id)
+    if label_slug is not None:
+        query = query.where(Item.label_links.any(ItemLabel.label.has(Label.slug == label_slug)))
 
     total = await session.scalar(select(func.count()).select_from(query.subquery())) or 0
     result = await session.scalars(
-        query.order_by(Item.occurred_at.desc().nulls_last(), Item.id).limit(limit).offset(offset)
+        query.options(_with_labels)
+        .order_by(Item.occurred_at.desc().nulls_last(), Item.id)
+        .limit(limit)
+        .offset(offset)
     )
     return list(result), total
 
 
 async def get_item(session: AsyncSession, item_id: uuid.UUID) -> Item:
-    item = await session.get(Item, item_id)
+    """Load an item with its labels, bypassing any stale copy in the session."""
+    item = await session.scalar(
+        select(Item)
+        .where(Item.id == item_id)
+        .options(_with_labels)
+        .execution_options(populate_existing=True)
+    )
     if item is None:
         raise NotFoundError(f"Item {item_id} not found")
     return item
@@ -40,7 +57,8 @@ async def upsert_item(
 ) -> tuple[Item, bool]:
     """Insert or refresh an item identified by (source, external_id).
 
-    Returns the item and whether it was newly created. Does not commit.
+    New items get the "unlabeled" label. Returns the item and whether it was newly
+    created. Does not commit.
     """
     values = {
         "kind": fetched.kind,
@@ -66,4 +84,6 @@ async def upsert_item(
         for key, value in values.items():
             setattr(item, key, value)
         await session.flush()
+    else:
+        await ensure_labeled(session, [item.id])
     return item, inserted_id is not None

@@ -32,6 +32,42 @@ One piece of data from a source. For Gmail, one email.
 | `data` | JSONB | Source-specific fields (thread id, recipients, provider labels, ...) |
 | `created_at`, `updated_at` | timestamptz | |
 
+### `labels`
+Predefined (`system`) and user-created (`custom`) labels. See [ADR 0003](../../.ai/decisions/0003-labels.md).
+
+| Column | Type | Notes |
+| :--- | :--- | :--- |
+| `id` | UUID | Primary key |
+| `name` | varchar(100) | Display name |
+| `slug` | varchar(100) | Unique, derived from the name (`"Side Projects"` → `side-projects`) |
+| `kind` | varchar | `system` (seeded, read-only) or `custom` |
+| `color` | varchar(7) | Optional `#rrggbb` |
+| `description` | text | Optional |
+| `created_at`, `updated_at` | timestamptz | |
+
+Predefined labels: `unlabeled`, `important`, `personal`, `work`, `finance`, `travel`, `shopping`, `social`, `promotions`, `updates`, `newsletters`.
+
+### `item_labels`
+Links items to labels (many-to-many).
+
+| Column | Type | Notes |
+| :--- | :--- | :--- |
+| `item_id` | UUID | FK → `items.id`, `ON DELETE CASCADE`; part of the primary key |
+| `label_id` | UUID | FK → `labels.id`, `ON DELETE CASCADE`; part of the primary key; indexed |
+| `assigned_by` | varchar | `system`, `manual`, `ai` or `rule` |
+| `confidence` | float | 0–1 for AI assignments, otherwise NULL (check constraint) |
+| `assigned_at` | timestamptz | |
+
+## Label rules
+
+Every item always has at least one label:
+
+- New items start with `unlabeled` (assigned by `system`).
+- Adding a label removes `unlabeled`; removing the last label restores it.
+- Deleting a custom label restores `unlabeled` on items for which it was the only label.
+- `unlabeled` cannot be assigned or removed by hand, and system labels cannot be edited or deleted.
+- Assigning a label an item already has updates `assigned_by`/`confidence` (the latest assignment wins).
+
 ## Ingestion flow
 
 ```mermaid
@@ -39,12 +75,13 @@ flowchart LR
     Provider["Provider API (e.g. Gmail)"] --> Connector["SourceConnector.fetch_items(since)"]
     Connector -->|FetchedItem| Sync["services/sync.py: sync_source"]
     Sync -->|upsert on source_id + external_id| Items[("items")]
+    Sync -->|new items get 'unlabeled'| ItemLabels[("item_labels")]
     Sync -->|last_synced_at| Sources[("sources")]
 ```
 
 1. `sync_source` looks up the connector for `source.type` in the registry.
 2. The connector yields `FetchedItem`s changed since `source.last_synced_at`.
-3. Each one is upserted on `(source_id, external_id)`, so re-syncing never duplicates items.
+3. Each one is upserted on `(source_id, external_id)`, so re-syncing never duplicates items. New items get the `unlabeled` label; existing items keep their labels.
 4. `last_synced_at` is set to the time the sync started and the transaction is committed.
 
 ## Adding a new source

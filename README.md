@@ -82,10 +82,12 @@ All endpoints live under `/api/v1`; the full, interactive reference is at `/docs
 | :--- | :--- |
 | `GET /health` | API, database and Redis status |
 | `GET, POST /sources` · `GET, DELETE /sources/{id}` | Configured data sources (Gmail first) |
-| `GET /items?source_id=` · `GET /items/{id}` | Items pulled from sources (emails, for Gmail) |
+| `GET /items?source_id=&label=` · `GET /items/{id}` | Items pulled from sources (emails, for Gmail), with their labels |
+| `PUT, POST /items/{id}/labels` · `DELETE /items/{id}/labels/{label_id}` | Replace, add or remove an item's labels |
+| `GET, POST /labels` · `GET, PATCH, DELETE /labels/{id}` | Predefined (read-only) and custom labels |
 | `POST /ai/chat/stream` | Stream an OpenRouter chat completion |
 
-The data model and how to add a new source are described in [docs/architecture/data-model.md](docs/architecture/data-model.md).
+Every item always has at least one label; items with none get the predefined `unlabeled` label. The data model, label rules and how to add a new source are described in [docs/architecture/data-model.md](docs/architecture/data-model.md).
 
 ---
 

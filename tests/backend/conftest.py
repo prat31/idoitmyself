@@ -1,6 +1,7 @@
 import os
 import sys
-from collections.abc import AsyncIterator
+import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
 # Tests run against a dedicated Postgres database; point the app at it before importing it.
@@ -23,6 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from app.core.database import AsyncSessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models.source import Source, SourceType  # noqa: E402
+from app.services.items import upsert_item  # noqa: E402
+from app.sources.base import FetchedItem  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -36,16 +40,35 @@ def migrated_database() -> None:
 
 @pytest_asyncio.fixture(autouse=True)
 async def clean_tables() -> AsyncIterator[None]:
-    """Remove rows created by a test, keeping data seeded by migrations."""
+    """Remove rows created by a test, keeping data seeded by migrations (system labels)."""
     yield
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE sources, items CASCADE"))
+        await conn.execute(text("TRUNCATE sources, items, item_labels CASCADE"))
+        await conn.execute(text("DELETE FROM labels WHERE kind = 'custom'"))
 
 
 @pytest_asyncio.fixture
 async def db() -> AsyncIterator[AsyncSession]:
     async with AsyncSessionLocal() as session:
         yield session
+
+
+@pytest_asyncio.fixture
+async def item_factory(db: AsyncSession) -> Callable[..., Awaitable[uuid.UUID]]:
+    """Ingest items the way a sync would and return their ids."""
+    source = Source(type=SourceType.GMAIL, name="Test inbox")
+    db.add(source)
+    await db.commit()
+
+    async def make(title: str = "Hello", external_id: str | None = None) -> uuid.UUID:
+        fetched = FetchedItem(
+            external_id=external_id or uuid.uuid4().hex, kind="email", title=title
+        )
+        item, _ = await upsert_item(db, source, fetched)
+        await db.commit()
+        return item.id
+
+    return make
 
 
 @pytest_asyncio.fixture

@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base, TimestampMixin
+from app.models.label import ItemLabel
 from app.models.source import Source
 
 
@@ -33,3 +34,5 @@ class Item(TimestampMixin, Base):
     data: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
 
     source: Mapped[Source] = relationship(lazy="raise")
+    # Always has at least one entry: the "unlabeled" system label when nothing else applies.
+    label_links: Mapped[list[ItemLabel]] = relationship(back_populates="item", lazy="raise")

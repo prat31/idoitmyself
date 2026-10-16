@@ -52,11 +52,11 @@ flowchart TD
 │   ├── backend/                    # FastAPI application, domain logic, workers
 │   │   ├── migrations/             # Alembic migrations
 │   │   └── app/
-│   │       ├── api/v1/             # API router and endpoints (health, sources, items, ai)
+│   │       ├── api/v1/             # API router and endpoints (health, sources, items, labels, ai)
 │   │       ├── core/               # Settings, database setup, error types
 │   │       ├── models/             # SQLAlchemy ORM models
 │   │       ├── schemas/            # Pydantic request/response schemas
-│   │       ├── services/           # Business logic (sources, items, sync, OpenRouter client)
+│   │       ├── services/           # Business logic (sources, items, labels, sync, OpenRouter client)
 │   │       ├── sources/            # Source connectors (interface + registry)
 │   │       └── workers/            # Celery app and task definitions
 │   └── frontend/                   # Vite + React (TypeScript) SPA, currently the static landing page
@@ -89,6 +89,7 @@ Entries marked *(planned)* are part of the intended layout but do not exist yet;
 * **Database Models (`app/models/`)**: SQLAlchemy 2.0 typed models on `Base` from `app/core/database.py`. Schema changes go through Alembic migrations in `migrations/`. See [docs/architecture/data-model.md](../docs/architecture/data-model.md).
 * **Schemas (`app/schemas/`)**: Pydantic models for API input/output, kept separate from ORM models.
 * **Source Connectors (`app/sources/`)**: One `SourceConnector` per source type (Gmail first). Connectors only fetch and normalize data into `FetchedItem`s; `services/sync.py` persists them. See [ADR 0002](decisions/0002-generic-sources-and-items.md).
+* **Labels (`services/labels.py`)**: Predefined and custom labels and their assignment to items. All label writes go through this service, which keeps the "every item has at least one label" invariant. See [ADR 0003](decisions/0003-labels.md).
 * **Errors (`app/core/errors.py`)**: Services raise `AppError` subclasses (`NotFoundError`, `ConflictError`, ...), rendered as `{"error": {"code", "message"}}` by a central handler.
 * **Async Workers (`app/workers/`)**: Celery tasks for heavy computation or background jobs.
 
