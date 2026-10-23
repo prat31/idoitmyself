@@ -1,0 +1,101 @@
+# Full IDIM development stack: `docker compose up --build`
+#   web       http://localhost:5173  (Vite dev server, proxies /api to the api service)
+#   api       http://localhost:8000  (FastAPI; docs at /docs)
+#   worker    Celery worker for runs (queue: runs)
+#   rabbitmq  management UI at http://localhost:15672
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-idim}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-idim}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./src/backend
+    env_file: .env
+    environment: &backend-env
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_HOST: rabbitmq
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src/backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # Celery worker: executes runs queued on RabbitMQ. Restart it to pick up code changes.
+  worker:
+    build: ./src/backend
+    env_file: .env
+    environment: *backend-env
+    command: celery -A app.worker worker -Q runs --loglevel=INFO --concurrency=2 --without-gossip --without-mingle
+    volumes:
+      - ./src/backend:/app
+    depends_on:
+      api:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  web:
+    build: ./src/frontend
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./src/frontend:/app
+      - /app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  rabbitmq_data:
+  redis_data:

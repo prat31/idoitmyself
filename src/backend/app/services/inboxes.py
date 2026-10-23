@@ -1,0 +1,50 @@
+from datetime import UTC, datetime
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.core.crypto import encrypt
+from app.models.inbox import Inbox, InboxCredential, InboxProvider
+from app.schemas.inbox import InboxDraft
+from app.services.gmail_oauth import GoogleTokens
+from app.services.tags import get_or_create_tags
+
+
+async def list_inboxes(session: AsyncSession) -> list[Inbox]:
+    result = await session.scalars(select(Inbox).order_by(Inbox.created_at))
+    return list(result)
+
+
+async def save_gmail_inbox(
+    session: AsyncSession, draft: InboxDraft, email_address: str, tokens: GoogleTokens
+) -> tuple[Inbox, bool]:
+    """Create the inbox, or — if this Gmail account is already connected — update it with the new
+    details and credentials. Returns (inbox, created)."""
+    # Resolve tags before touching the inbox: on an async session, assigning a relationship on an
+    # already-flushed object would trigger a lazy load.
+    tags = await get_or_create_tags(session, draft.tags)
+    inbox = await session.scalar(
+        select(Inbox)
+        .where(Inbox.provider == InboxProvider.GMAIL, Inbox.email_address == email_address)
+        .options(selectinload(Inbox.credential))
+    )
+    created = inbox is None
+
+    if inbox is None:
+        inbox = Inbox(provider=InboxProvider.GMAIL, email_address=email_address, credential=InboxCredential())
+        session.add(inbox)
+
+    inbox.name = draft.name
+    inbox.notes = draft.notes
+    inbox.connected_at = datetime.now(UTC)
+    inbox.tags = tags
+
+    credential = inbox.credential
+    credential.encrypted_refresh_token = encrypt(tokens.refresh_token)
+    credential.encrypted_access_token = encrypt(tokens.access_token)
+    credential.access_token_expires_at = tokens.expires_at
+    credential.scopes = tokens.scopes
+
+    await session.commit()
+    return inbox, created
