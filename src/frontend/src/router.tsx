@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router'
+import { createBrowserRouter, createHashRouter, Navigate } from 'react-router'
 
 import { AppShell } from '@/components/layout/app-shell'
 import { DashboardPage } from '@/features/dashboard/dashboard-page'
@@ -9,7 +9,7 @@ import { LabelDetailPage } from '@/features/labels/label-detail-page'
 import { LabelsPage } from '@/features/labels/labels-page'
 import { ScansPage } from '@/features/scans/scans-page'
 
-export const router = createBrowserRouter([
+const routes = [
   {
     path: '/',
     element: <AppShell />,
@@ -26,4 +26,8 @@ export const router = createBrowserRouter([
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },
-])
+]
+
+/** The public read-only demo uses hash URLs so its static GitHub Pages artifact needs no server-side
+ * route fallback. The normal self-hosted application always uses ordinary browser URLs. */
+export const router = window.__IDIM_DEMO_MODE__ ? createHashRouter(routes) : createBrowserRouter(routes)

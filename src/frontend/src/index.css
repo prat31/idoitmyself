@@ -38,6 +38,7 @@
   --destructive-foreground: #fafafa;
   --success: #16a34a;
   --warning: #d97706;
+  --warning-foreground: #09090b;
 
   /* Charts — emphasis form: the series that matters in ink, context in a light gray */
   --chart-emphasis: #27272a;
@@ -92,6 +93,7 @@
   --destructive-foreground: #fafafa;
   --success: #22c55e;
   --warning: #f59e0b;
+  --warning-foreground: #09090b;
 
   --chart-emphasis: #e4e4e7;
   --chart-context: #52525b;
@@ -148,6 +150,7 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-chart-emphasis: var(--chart-emphasis);
   --color-chart-context: var(--chart-context);
   --color-chart-grid: var(--chart-grid);

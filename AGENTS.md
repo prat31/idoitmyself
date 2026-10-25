@@ -69,7 +69,7 @@ This is a self-hosted app that isn't deployed anywhere: **no backward compatibil
     - enum: is, is not, is any of
   - For **list fields** (recipients, attachments, Gmail labels), a positive operator holds if **any** value matches, and its negation holds if **none** does.
   - **Regexes** use Python `re` with search semantics. They're validated when the filter is saved: an invalid one returns 422.
-- **Labels (2026-10-25):** global and provider-agnostic. Each has a **display name**, which is editable and shown everywhere in the UI, and a **normalised name**, which is unique and immutable. The normalised name is lowercase, with every run of non-letters/digits turned into one `_` and leading/trailing `_` trimmed: "Credit Card-Bill!" becomes `credit_card_bill`. Both names are shown on the label's detail page and edit dialog. A label can be **deleted only when no filter (active or inactive) writes it** (409 otherwise). Deleting it removes it from every email.
+- **Labels (2026-10-25):** global and provider-agnostic. Each has a **display name**, which is editable and shown everywhere in the UI, a **normalised name**, which is unique and immutable, and a **colour** from a fixed palette (`gray, red, orange, amber, green, teal, blue, violet, pink`; default gray; editable). The normalised name is lowercase, with every run of non-letters/digits turned into one `_` and leading/trailing `_` trimmed: "Credit Card-Bill!" becomes `credit_card_bill`. Both names are shown on the label's detail page and edit dialog. A label can be **deleted only when no filter (active or inactive) writes it** (409 otherwise). Deleting it removes it from every email.
 - **Scanning (2026-10-25):**
   - **Celery beat** fires `scans.tick` on a crontab at **fixed boundaries**, every `SCAN_INTERVAL_MINUTES` from the hour (30 → :00 and :30 UTC, which is also :00/:30 in IST). The interval must divide 60.
   - The tick queues one **scheduled** scan per inbox **covered by at least one active filter**, unless that inbox's scheduled scan is still in flight (its next window then catches up).
@@ -98,7 +98,7 @@ Frontend libraries are the agent's call (owner delegated). In use: `react`, `rea
 Theme **"Monochrome & Graphite"** (chosen by the owner; replaces the earlier beige and blue/purple themes). Palette: Primary `#18181B`, Dark `#09090B` (text), Accent `#71717A` (muted text/icons), Background `#FAFAFA`, Surface `#FFFFFF` (cards, sidebar). Borders and muted fills are derived from the same zinc scale (`#E4E4E7`, `#F4F4F5`). Dark mode is an inverted derivation: `#09090B` background, `#18181B` surfaces, `#FAFAFA` primary.
 
 - All tokens live in `src/frontend/src/index.css` (`:root` for light, `.dark` for dark, mapped to Tailwind with `@theme inline`).
-- Use **semantic token classes only**: `bg-background`, `bg-card`, `text-foreground`, `text-muted-foreground`, `bg-primary`, `bg-accent`, `border-border`, `bg-sidebar*`, and the status colors `destructive`, `success`, `warning`. Never use raw hex values or Tailwind palette classes (`stone-200`, etc.) in components. Labels have no colours.
+- Use **semantic token classes only**: `bg-background`, `bg-card`, `text-foreground`, `text-muted-foreground`, `bg-primary`, `bg-accent`, `border-border`, `bg-sidebar*`, and the status colors `destructive`, `success`, `warning`. Never use raw hex values or Tailwind palette classes (`stone-200`, etc.) in components. Label colours come from the `--label-*` tokens (light and dark variants), used through `bg-label-<colour>`.
 - Typography: `font-sans` (Inter) for UI, `font-serif` (Fraunces) for the wordmark and page titles.
 - Light/dark: a `dark` class on `<html>`, set by `ThemeProvider`, switched with the sun/moon `ThemeToggle`, and persisted to `localStorage` under `idim-theme`. Light is the default; dark is used only if the user chose it.
 - shadcn/ui is configured in `src/frontend/components.json`. Its components go in `src/components/ui/` (including `select.tsx`, used by the rule builder). Shared form helpers (`FieldError`, `Optional`, `FormError`) are in `components/form/field.tsx`.
@@ -112,6 +112,13 @@ Theme **"Monochrome & Graphite"** (chosen by the owner; replaces the earlier bei
 - **Responsive (mandatory):** every page must work at **375px** (phone) through desktop. Below `md` (768px) the sidebar is replaced by `MobileTopBar` (logo plus a menu button that opens `SidebarContent` in a left `Sheet` drawer). Use `PageHeader` and `PageBody` for the standard responsive gutters (16px on phones, 40px from `md`). Never use fixed widths that overflow a phone. `<main>` is `relative`, so Radix's hidden native form controls can't stretch the document.
 - Shared page building blocks: `PageHeader`, `PageBody`, `EmptyState`, `ErrorBanner` and **`ItemList` / `ItemRow` / `Figure`** in `components/layout/`.
 - **Listing pages (Inboxes, Filters, Labels, Scans) use stacked full-width rows, not card grids (owner decision).** The look is tabular without a table, modelled on openrouter.ai/models. Each row has a title with badges, muted description lines and a small meta line on the left, right-aligned figures (value over caption), and actions. Phones stack the figures under the text. New listing pages must use `ItemList`/`ItemRow`. Use dialogs for small create flows and an `AlertDialog` to confirm destructive actions. The filter editor is a **full page**, because the rule builder needs the room.
+
+## Public product site and demo
+
+- `src/marketing/` is a separate static Vite site for `https://idoitmyself.online`. It is deliberately separate from the self-hosted app in `src/frontend/`.
+- `/` is the product and architecture page; `/demo/` is a read-only, fully fictional and anonymised static walkthrough of the app. Its persistent top bar must make the demo status clear. It must never call the API, OAuth, or any real mailbox.
+- It uses the same Monochrome & Graphite tokens and the same light/dark preference (`idim-theme`) as the app.
+- `.github/workflows/deploy-pages.yml` builds `src/marketing` on pushes to `main` and deploys the artifact to GitHub Pages. `src/marketing/public/CNAME` owns the `idoitmyself.online` custom-domain setting; do not omit it from the artifact.
 
 ## Running locally
 
@@ -154,8 +161,9 @@ docker compose up --build        # db, rabbitmq, redis, api, worker, beat, web
   - **Validation:** the client checks required fields and values. Regexes are checked by the server only, because Python's regex syntax differs from JavaScript's.
 
 ### Labels (Automation › Labels)
-- Table `labels`: `name` (normalised, unique; also enforced by the CHECK `ck_labels_name_normalized`) and `display_name`. `normalize_label_name` is in `app/schemas/label.py`; the frontend mirrors it in `features/labels/name.ts` for the "Normalised as" preview only.
-- `GET /api/v1/labels` (each with `email_count` and the `filters` that write it), `GET /api/v1/labels/{id}`, `POST /api/v1/labels` `{display_name}` (201; 409 if the normalised name is taken), `PATCH /api/v1/labels/{id}` `{display_name}` only, `DELETE /api/v1/labels/{id}` (204; **409 while any filter writes it**), `GET /api/v1/labels/{id}/stats?tz`, `GET /api/v1/labels/{id}/emails?page&page_size` (newest first, with the filter that added the label).
+- Table `labels`: `name` (normalised, unique; also enforced by the CHECK `ck_labels_name_normalized`), `display_name` and `color` (CHECK `ck_labels_color_in_palette`). `normalize_label_name` is in `app/schemas/label.py`; the frontend mirrors it in `features/labels/name.ts` for the "Normalised as" preview only.
+- **Colours in the UI:** the colour is picked with `ColorPicker` in the add and edit dialogs. It shows as a `LabelDot` (`features/labels/label-dot.tsx`) beside the label's name everywhere: label rows and page, filter rows and the label picker, email label tags, the Dashboard (by label, this month vs last, recent, needs attention) and the label filter. Every API shape that carries a label also carries its `color`. **Label colours are identity dots only, never chart series colours.**
+- `GET /api/v1/labels` (each with `email_count` and the `filters` that write it), `GET /api/v1/labels/{id}`, `POST /api/v1/labels` `{display_name, color?}` (201; 409 if the normalised name is taken), `PATCH /api/v1/labels/{id}` `{display_name?, color?}`, `DELETE /api/v1/labels/{id}` (204; **409 while any filter writes it**), `GET /api/v1/labels/{id}/stats?tz`, `GET /api/v1/labels/{id}/emails?page&page_size` (newest first, with the filter that added the label).
 
 ### Scanning (Automation › Scans)
 - **Tables:**
