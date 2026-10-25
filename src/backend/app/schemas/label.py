@@ -3,17 +3,16 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, field_validator
-
-LabelColor = Literal["gray", "red", "orange", "amber", "green", "teal", "blue", "violet", "pink"]
-
-FilterCondition = Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)]
-Description = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
-# Jev's P(yes) must reach this for a run to apply the label.
-MatchThreshold = Annotated[float, Field(gt=0, lt=1)]
+from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
 
 LABEL_NAME_MAX_LENGTH = 50
+
+LabelColor = Literal["gray", "red", "orange", "amber", "green", "teal", "blue", "violet", "pink"]
 _NON_ALNUM_RUN = re.compile(r"[\W_]+")
+
+DisplayName = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=LABEL_NAME_MAX_LENGTH)
+]
 
 
 def normalize_label_name(raw: str) -> str:
@@ -23,49 +22,33 @@ def normalize_label_name(raw: str) -> str:
     return _NON_ALNUM_RUN.sub("_", raw.lower()).strip("_")
 
 
-def _validate_label_name(raw: str) -> str:
-    name = normalize_label_name(raw)
-    if not name:
-        raise ValueError("must contain at least one letter or digit")
-    if len(name) > LABEL_NAME_MAX_LENGTH:
-        raise ValueError(f"must be at most {LABEL_NAME_MAX_LENGTH} characters")
-    return name
-
-
-LabelName = Annotated[str, AfterValidator(_validate_label_name)]
-
-
-def _blank_to_none(value: str | None) -> str | None:
-    return value or None
-
-
 class LabelCreate(BaseModel):
-    name: LabelName
-    description: Description | None = None
-    color: LabelColor = "gray"
-    filter_condition: FilterCondition | None = None
-    match_threshold: MatchThreshold = 0.5
+    """The normalised `name` is derived from the display name and can never change."""
 
-    _blank_description = field_validator("description")(_blank_to_none)
-    _blank_filter_condition = field_validator("filter_condition")(_blank_to_none)
+    display_name: DisplayName
+    color: LabelColor = "gray"
+
+    @field_validator("display_name")
+    @classmethod
+    def has_normal_form(cls, value: str) -> str:
+        if not normalize_label_name(value):
+            raise ValueError("must contain at least one letter or digit")
+        return value
+
+    @property
+    def name(self) -> str:
+        return normalize_label_name(self.display_name)
 
 
 class LabelUpdate(BaseModel):
-    """Partial update. Description, colour, filter condition and match threshold are editable; the
-    name is not, and any other field (e.g. name) is rejected. Omitted fields are unchanged; null
-    clears description or filter condition."""
+    """Partial update of the display name and/or colour; the normalised name never changes."""
 
     model_config = ConfigDict(extra="forbid")
 
-    description: Description | None = None
+    display_name: DisplayName | None = None
     color: LabelColor | None = None
-    filter_condition: FilterCondition | None = None
-    match_threshold: MatchThreshold | None = None
 
-    _blank_description = field_validator("description")(_blank_to_none)
-    _blank_filter_condition = field_validator("filter_condition")(_blank_to_none)
-
-    @field_validator("color", "match_threshold")
+    @field_validator("display_name", "color")
     @classmethod
     def not_null(cls, value: object) -> object:
         if value is None:
@@ -73,14 +56,18 @@ class LabelUpdate(BaseModel):
         return value
 
 
-class LabelRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class LabelFilterRef(BaseModel):
     id: uuid.UUID
     name: str
-    description: str | None
+    status: str
+
+
+class LabelRead(BaseModel):
+    id: uuid.UUID
+    name: str
+    display_name: str
     color: LabelColor
-    filter_condition: str | None
-    match_threshold: float
     email_count: int
+    # Filters that write this label; a label can only be deleted when there are none.
+    filters: list[LabelFilterRef]
     created_at: datetime

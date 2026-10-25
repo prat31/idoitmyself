@@ -39,7 +39,12 @@
   --success: #16a34a;
   --warning: #d97706;
 
-  /* Label palette — muted so it sits quietly in the monochrome UI */
+  /* Charts — emphasis form: the series that matters in ink, context in a light gray */
+  --chart-emphasis: #27272a;
+  --chart-context: #d4d4d8;
+  --chart-grid: #ececee;
+
+  /* Label palette — muted so it sits quietly in the monochrome UI; used only as identity dots */
   --label-gray: #71717a;
   --label-red: #dc5a5a;
   --label-orange: #e07b39;
@@ -49,11 +54,6 @@
   --label-blue: #4a7fd4;
   --label-violet: #8a63d2;
   --label-pink: #d0609b;
-
-  /* Charts — emphasis form: the series that matters in ink, context in a light gray */
-  --chart-emphasis: #27272a;
-  --chart-context: #d4d4d8;
-  --chart-grid: #ececee;
 
   /* Lines */
   --border: #e4e4e7;
@@ -93,6 +93,10 @@
   --success: #22c55e;
   --warning: #f59e0b;
 
+  --chart-emphasis: #e4e4e7;
+  --chart-context: #52525b;
+  --chart-grid: #232326;
+
   --label-gray: #a1a1aa;
   --label-red: #ef7b7b;
   --label-orange: #f0965a;
@@ -102,10 +106,6 @@
   --label-blue: #6f9ef0;
   --label-violet: #a787ea;
   --label-pink: #e786ba;
-
-  --chart-emphasis: #e4e4e7;
-  --chart-context: #52525b;
-  --chart-grid: #232326;
 
   --border: #27272a;
   --input: #3f3f46;

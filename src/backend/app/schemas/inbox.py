@@ -5,6 +5,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from app.models.inbox import InboxProvider
+from app.models.scan import ScanKind, ScanStatus
 
 TagName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
 
@@ -16,17 +17,31 @@ class TagRead(BaseModel):
     name: str
 
 
-class InboxRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class InboxLatestScan(BaseModel):
     id: uuid.UUID
-    provider: InboxProvider
+    kind: ScanKind
+    status: ScanStatus
+    error: str | None
+    emails_found: int
+    emails_processed: int
+    created_at: datetime
+    finished_at: datetime | None
+
+
+class InboxRead(BaseModel):
+    id: uuid.UUID
+    provider: InboxProvider  # the mailbox type
     name: str
     email_address: str
     notes: str | None
     tags: list[TagRead]
     connected_at: datetime
     created_at: datetime
+    # Active filters whose scope covers this inbox (by its mailbox type or by name).
+    active_filters: int
+    # End of the last scheduled scan's window (null: never scanned on schedule).
+    scanned_until: datetime | None
+    last_scan: InboxLatestScan | None
 
 
 class InboxDraft(BaseModel):

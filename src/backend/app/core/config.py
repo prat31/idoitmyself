@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,14 +35,14 @@ class Settings(BaseSettings):
     rabbitmq_host: str = "localhost"
     rabbitmq_port: int = 5672
 
-    # Jev (TypeSafe System One model) via OpenRouter's Decisions API
-    openrouter_api_key: SecretStr | None = None
-    jev_model: str = "typesafe/jev-1.13"
-    jev_decisions_url: str = "https://openrouter.ai/api/alpha/decisions"
-    jev_body_max_chars: int = 8000
-
-    # Run engine
-    run_concurrency: int = 5  # emails in flight within one batch task (fetch + Jev + store)
+    # Scanning. Celery beat fires on fixed clock boundaries every SCAN_INTERVAL_MINUTES (30: at :00 and
+    # :30) and scans every inbox an active filter covers, from where its last scheduled scan stopped (or
+    # one interval back, the first time) up to the boundary. Must divide 60.
+    scan_interval_minutes: int = Field(default=30, gt=0, le=60)
+    # A queued/running scan with no progress for this long is marked failed, so the inbox isn't
+    # blocked forever (e.g. a batch message was lost when the worker was killed).
+    scan_stale_minutes: int = 30
+    scan_concurrency: int = 5  # emails in flight within one batch task (fetch + filter + store)
     # Gmail API calls in flight per worker process. Gmail throttles per user, so the effective total is
     # this × the worker's process count (2 in docker-compose) — keep it small.
     gmail_max_in_flight: int = 2
@@ -52,15 +52,22 @@ class Settings(BaseSettings):
     gmail_quota_units_per_minute: int = 6000
     gmail_quota_utilisation: float = 0.9
     gmail_quota_window_seconds: int = 10
-    run_batch_size: int = 10  # emails per batch task
-    run_max_attempts: int = 12  # tries per email (and for listing) before giving up
+    scan_batch_size: int = 10  # emails per batch task
+    scan_max_attempts: int = 12  # tries per email (and for listing) before giving up
     # Exponential back-off (with jitter) for work that hit a provider error. Keep every delay well under
     # RabbitMQ's consumer_timeout (30 min): delayed Celery messages are held unacked until due.
-    run_retry_base_seconds: float = 2  # Google: start retries at least 1s after an error, then double
-    run_retry_max_seconds: float = 60
+    scan_retry_base_seconds: float = 2  # Google: start retries at least 1s after an error, then double
+    scan_retry_max_seconds: float = 60
     # Work paced by our own quota budget is re-queued for the next window plus a random spread, so
     # deferred batches don't all return at the same instant.
-    run_pacing_spread_seconds: float = 30
+    scan_pacing_spread_seconds: float = 30
+
+    @field_validator("scan_interval_minutes")
+    @classmethod
+    def divides_an_hour(cls, value: int) -> int:
+        if 60 % value:
+            raise ValueError("must divide 60 (e.g. 5, 10, 15, 20, 30, 60)")
+        return value
 
     @property
     def celery_broker_url(self) -> str:

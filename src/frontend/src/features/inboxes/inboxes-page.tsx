@@ -45,7 +45,7 @@ export function InboxesPage() {
     <>
       <PageHeader
         title="Inboxes"
-        description="Email accounts connected to IDIM."
+        description="Email accounts connected to IDIM. Each is scanned every 30 minutes by the active filters that cover it."
         actions={hasInboxes ? <AddInboxDialog trigger={addButton} /> : undefined}
       />
       <PageBody>

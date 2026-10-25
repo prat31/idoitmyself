@@ -10,7 +10,7 @@ from app.schemas.label import LabelCreate, LabelRead, LabelUpdate
 from app.schemas.stats import EmailPage, LabelStats
 from app.services import labels as label_service
 from app.services import stats as stats_service
-from app.services.labels import LabelNameTakenError
+from app.services.labels import LabelInUseError, LabelNameTakenError
 from app.services.stats import StatsQueryError
 
 router = APIRouter(prefix="/labels", tags=["labels"])
@@ -54,7 +54,7 @@ async def get_label_emails(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
 ):
-    """Emails carrying this label, newest first."""
+    """Emails carrying this label, newest first, with the filter that added it."""
     label = await _get_label_or_404(session, label_id)
     return await stats_service.label_emails(session, label, page, page_size)
 
@@ -69,7 +69,7 @@ async def create_label(data: LabelCreate, session: SessionDep):
 
 @router.patch("/{label_id}", response_model=LabelRead)
 async def update_label(label_id: uuid.UUID, data: LabelUpdate, session: SessionDep):
-    """Update a label's description, colour and/or filter condition. The name cannot be changed."""
+    """Change a label's display name and/or colour. Its normalised name never changes."""
     label = await label_service.update_label(session, label_id, data)
     if label is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Label not found")
@@ -78,6 +78,12 @@ async def update_label(label_id: uuid.UUID, data: LabelUpdate, session: SessionD
 
 @router.delete("/{label_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_label(label_id: uuid.UUID, session: SessionDep):
-    if not await label_service.delete_label(session, label_id):
+    try:
+        deleted = await label_service.delete_label(session, label_id)
+    except LabelInUseError:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Filters still add this label; change or delete them first"
+        ) from None
+    if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Label not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

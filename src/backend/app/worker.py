@@ -1,8 +1,11 @@
-"""Celery app and run tasks. Start a worker with: celery -A app.worker worker -Q runs --loglevel=INFO
+"""Celery app and scan tasks.
+Worker: celery -A app.worker worker -Q scans --loglevel=INFO
+Beat:   celery -A app.worker beat --loglevel=INFO   (fires scans.tick at :00/:30 with a 30-minute interval)
 
-A run is two kinds of task on the `runs` queue:
-- runs.execute(run_id): list the run's emails, then publish them as runs.process batches.
-- runs.process(run_id, items, attempt): classify one batch.
+Three kinds of task on the `scans` queue:
+- scans.tick: queue a scheduled scan for every inbox an active filter covers (fixed time windows).
+- scans.discover(scan_id): list the scan's new emails, then publish them as scans.process batches.
+- scans.process(scan_id, message_ids, attempt): fetch, filter and label one batch.
 Transient failures (rate limits, 5xx, network) are never waited on in the worker: the work is
 published back to the broker with a `countdown` (exponential back-off with jitter, honouring
 Retry-After), and the pool process moves on.
@@ -16,6 +19,7 @@ from collections.abc import Awaitable, Callable
 
 import httpx
 from celery import Celery
+from celery.schedules import crontab
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -26,19 +30,28 @@ from app.core.retry import TransientError, backoff_seconds
 
 logger = logging.getLogger(__name__)
 
-RUN_QUEUE = "runs"
-EXECUTE_RUN_TASK = "runs.execute"
-PROCESS_BATCH_TASK = "runs.process"
+SCAN_QUEUE = "scans"
+TICK_TASK = "scans.tick"
+DISCOVER_TASK = "scans.discover"
+PROCESS_BATCH_TASK = "scans.process"
+SETTLE_SECONDS = 60
 
 celery_app = Celery("idim", broker=get_settings().celery_broker_url)
 celery_app.conf.update(
-    task_default_queue=RUN_QUEUE,
+    task_default_queue=SCAN_QUEUE,
     task_ignore_result=True,
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
     # RabbitMQ 4 rejects the transient non-exclusive queues Celery uses for remote control (pidbox);
     # we don't use remote control, gossip or mingle. Our task queue itself is durable.
     worker_enable_remote_control=False,
+    beat_schedule={
+        "scan-inboxes": {
+            "task": TICK_TASK,
+            # Fixed clock boundaries (UTC), e.g. :00 and :30, not "every 30 minutes since beat started".
+            "schedule": crontab(minute=f"*/{get_settings().scan_interval_minutes}"),
+        }
+    },
 )
 
 
@@ -59,27 +72,36 @@ def _run_async[T](work: Callable[[Callable[[], AsyncSession], httpx.AsyncClient]
 
 def _pacing_delay(retry_after: float | None) -> float:
     """Next budget window, plus a random spread so paced work trickles back instead of stampeding."""
-    return (retry_after or 0) + random.uniform(0, get_settings().run_pacing_spread_seconds)
+    return (retry_after or 0) + random.uniform(0, get_settings().scan_pacing_spread_seconds)
 
 
 def _delay(attempt: int, retry_after: float | None = None) -> float:
     settings = get_settings()
     return backoff_seconds(
         attempt,
-        base=settings.run_retry_base_seconds,
-        cap=settings.run_retry_max_seconds,
+        base=settings.scan_retry_base_seconds,
+        cap=settings.scan_retry_max_seconds,
         retry_after=retry_after,
     )
 
 
-@celery_app.task(name=EXECUTE_RUN_TASK, bind=True)
-def execute_run_task(self, run_id: str, provider_errors: int = 0) -> None:
-    from app.services.run_engine import discover, fail_run
+@celery_app.task(name=TICK_TASK)
+def tick_task() -> None:
+    from app.services.scan_engine import start_due_scans
+
+    for scan_id in _run_async(lambda sf, _client: start_due_scans(sf)):
+        # A short wait past the boundary, so mail received just before it is in the provider's index.
+        discover_task.apply_async(args=[str(scan_id)], countdown=SETTLE_SECONDS)
+
+
+@celery_app.task(name=DISCOVER_TASK, bind=True)
+def discover_task(self, scan_id: str, provider_errors: int = 0) -> None:
+    from app.services.scan_engine import discover, fail_scan
 
     settings = get_settings()
-    rid = uuid.UUID(run_id)
+    sid = uuid.UUID(scan_id)
     try:
-        items = _run_async(lambda sf, client: discover(rid, session_factory=sf, client=client))
+        ids = _run_async(lambda sf, client: discover(sid, session_factory=sf, client=client))
     except QuotaExhausted as exc:
         # Our own budget is spent for this window: try again next window, without using an attempt.
         raise self.retry(
@@ -89,54 +111,52 @@ def execute_run_task(self, run_id: str, provider_errors: int = 0) -> None:
         ) from exc
     except TransientError as exc:
         attempt = provider_errors
-        if attempt + 1 >= settings.run_max_attempts:
+        if attempt + 1 >= settings.scan_max_attempts:
             message = f"Couldn't list emails after {attempt + 1} attempts: {exc}"
-            _run_async(lambda sf, _client: fail_run(sf, rid, message))
+            _run_async(lambda sf, _client: fail_scan(sf, sid, message))
             return
         countdown = _delay(attempt, exc.retry_after)
-        logger.warning("Run %s: listing deferred %.0fs (attempt %s): %s", run_id, countdown, attempt + 1, exc)
+        logger.warning(
+            "Scan %s: listing deferred %.0fs (attempt %s): %s", scan_id, countdown, attempt + 1, exc
+        )
         # Re-publish this task to the broker with a delay; the worker process is freed immediately.
         raise self.retry(
             countdown=countdown, max_retries=None, kwargs={"provider_errors": attempt + 1}
         ) from exc
 
-    size = settings.run_batch_size
-    for start in range(0, len(items), size):
-        batch = [item.to_message() for item in items[start : start + size]]
-        process_batch_task.apply_async(args=[run_id, batch, 0])
-    logger.info("Run %s: %s emails in %s batches", run_id, len(items), -(-len(items) // size))
+    size = settings.scan_batch_size
+    for start in range(0, len(ids), size):
+        process_batch_task.apply_async(args=[scan_id, ids[start : start + size], 0])
+    logger.info("Scan %s: %s emails in %s batches", scan_id, len(ids), -(-len(ids) // size))
 
 
 @celery_app.task(name=PROCESS_BATCH_TASK)
-def process_batch_task(run_id: str, items: list[list[str]], attempt: int = 0) -> None:
-    from app.services.run_engine import WorkItem, process_batch
+def process_batch_task(scan_id: str, message_ids: list[str], attempt: int = 0) -> None:
+    from app.services.scan_engine import process_batch
 
     settings = get_settings()
-    rid = uuid.UUID(run_id)
+    sid = uuid.UUID(scan_id)
     outcome = _run_async(
         lambda sf, client: process_batch(
-            rid,
-            [WorkItem.from_message(item) for item in items],
+            sid,
+            message_ids,
             attempt=attempt,
-            max_attempts=settings.run_max_attempts,
+            max_attempts=settings.scan_max_attempts,
             session_factory=sf,
             client=client,
         )
     )
     if outcome.paced:
         process_batch_task.apply_async(
-            args=[run_id, [item.to_message() for item in outcome.paced], attempt],
-            countdown=_pacing_delay(outcome.paced_after),
+            args=[scan_id, outcome.paced, attempt], countdown=_pacing_delay(outcome.paced_after)
         )
     if outcome.deferred:
         countdown = _delay(attempt, outcome.retry_after)
         logger.info(
-            "Run %s: re-queuing %s emails in %.0fs (attempt %s)",
-            run_id,
+            "Scan %s: re-queuing %s emails in %.0fs (attempt %s)",
+            scan_id,
             len(outcome.deferred),
             countdown,
             attempt + 2,
         )
-        process_batch_task.apply_async(
-            args=[run_id, [item.to_message() for item in outcome.deferred], attempt + 1], countdown=countdown
-        )
+        process_batch_task.apply_async(args=[scan_id, outcome.deferred, attempt + 1], countdown=countdown)

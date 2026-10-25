@@ -1,26 +1,18 @@
-import { CircleAlert, Filter, History, Inbox as InboxIcon, Scale } from 'lucide-react'
+import { CircleAlert, Inbox as InboxIcon, ListFilter, Tag } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
-import { labelColorClass } from '@/features/labels/colors'
 import { formatNumber, formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { LabelDot } from '@/features/labels/label-dot'
 import type { DashboardAttention } from './api'
 
 type Item = { key: string; icon: ReactNode; text: ReactNode; to: string; tone?: 'warning' | 'destructive' }
 
-function LabelName({ name, color }: { name: string; color: keyof typeof labelColorClass }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 font-mono text-foreground">
-      <span className={cn('size-1.5 rounded-full', labelColorClass[color])} aria-hidden="true" />
-      {name}
-    </span>
-  )
-}
+const Strong = ({ children }: { children: ReactNode }) => <span className="font-medium text-foreground">{children}</span>
 
 /** Actionable items, each linking to where it's fixed. Renders nothing when all is well. */
 export function AttentionPanel({ data }: { data: DashboardAttention }) {
-  const near = data.near_window
   const items: Item[] = [
     ...data.inboxes_with_errors.map((i) => ({
       key: `inbox-${i.inbox_id}`,
@@ -28,78 +20,58 @@ export function AttentionPanel({ data }: { data: DashboardAttention }) {
       icon: <InboxIcon className="size-4" />,
       text: (
         <>
-          Inbox <span className="font-medium text-foreground">{i.name}</span> failed its last scan: {i.error}
+          Inbox <Strong>{i.name}</Strong> failed its last scan: {i.error}
         </>
       ),
       to: '/connections/inbox',
     })),
-    ...data.runs_with_problems.map((r) => ({
-      key: `run-${r.run_id}`,
-      tone: r.status === 'failed' ? ('destructive' as const) : ('warning' as const),
+    ...data.scans_with_problems.map((s) => ({
+      key: `scan-${s.scan_id}`,
+      tone: s.status === 'failed' ? ('destructive' as const) : ('warning' as const),
       icon: <CircleAlert className="size-4" />,
       text: (
         <>
-          Run <span className="font-medium text-foreground">{r.name}</span>{' '}
-          {r.status === 'failed' ? 'failed' : `finished with ${formatNumber(r.emails_failed)} failed emails`} ·{' '}
-          {formatRelative(r.created_at)}
+          A scan of <Strong>{s.inbox_name}</Strong>{' '}
+          {s.status === 'failed' ? 'failed' : `finished with ${formatNumber(s.emails_failed)} failed emails`} ·{' '}
+          {formatRelative(s.created_at)}
         </>
       ),
-      to: `/discovery/runs/${r.run_id}`,
+      to: '/automation/scans',
     })),
-    ...data.labels_without_condition.map((l) => ({
-      key: `nocond-${l.label_id}`,
+    ...data.inboxes_without_filters.map((i) => ({
+      key: `unfiltered-${i.inbox_id}`,
       tone: 'warning' as const,
-      icon: <Filter className="size-4" />,
+      icon: <InboxIcon className="size-4" />,
       text: (
         <>
-          <LabelName name={l.name} color={l.color} /> has no filter condition, so runs can't use it
+          <Strong>{i.name}</Strong> isn't scanned: no active filter covers it
         </>
       ),
-      to: `/discovery/labels/${l.label_id}`,
+      to: '/automation/filters',
     })),
-    ...data.labels_stale.map((l) => ({
-      key: `stale-${l.label_id}`,
-      tone: 'warning' as const,
-      icon: <History className="size-4" />,
+    ...data.filters_never_matched.map((f) => ({
+      key: `never-${f.filter_id}`,
+      icon: <ListFilter className="size-4" />,
       text: (
         <>
-          <LabelName name={l.name} color={l.color} />: condition changed since its last run; earlier answers are stale
+          Filter <Strong>{f.name}</Strong> hasn't added <Strong>{f.label_display_name}</Strong> to any email yet
         </>
       ),
-      to: '/discovery/runs',
+      to: `/automation/filters/${f.filter_id}`,
     })),
-    ...data.labels_never_run.map((l) => ({
-      key: `never-${l.label_id}`,
-      icon: <History className="size-4" />,
+    ...data.labels_without_active_filter.map((l) => ({
+      key: `label-${l.label_id}`,
+      icon: <Tag className="size-4" />,
       text: (
         <>
-          <LabelName name={l.name} color={l.color} /> hasn't been used in a completed run yet
+          No active filter adds{' '}
+          <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+            <LabelDot color={l.color} />
+            {l.display_name}
+          </span>
         </>
       ),
-      to: '/discovery/runs',
-    })),
-    ...data.labels_likely_misses.map((l) => ({
-      key: `miss-${l.label_id}`,
-      icon: <Scale className="size-4" />,
-      text: (
-        <>
-          <LabelName name={l.name} color={l.color} />: {formatNumber(l.count ?? 0)}{' '}
-          {l.count === 1 ? 'email' : 'emails'} scored just under the threshold (within {near}) and{' '}
-          {l.count === 1 ? "wasn't" : "weren't"} labelled
-        </>
-      ),
-      to: `/discovery/labels/${l.label_id}`,
-    })),
-    ...data.labels_near_threshold.map((l) => ({
-      key: `near-${l.label_id}`,
-      icon: <Scale className="size-4" />,
-      text: (
-        <>
-          <LabelName name={l.name} color={l.color} />: {formatNumber(l.count ?? 0)}{' '}
-          {l.count === 1 ? 'answer' : 'answers'} within ±{near} of the threshold. Check them to tune it
-        </>
-      ),
-      to: `/discovery/labels/${l.label_id}`,
+      to: `/automation/labels/${l.label_id}`,
     })),
   ]
 

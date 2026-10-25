@@ -11,7 +11,12 @@ from app.models.tag import Tag, inbox_tags
 
 
 class InboxProvider(enum.StrEnum):
+    """The mailbox type. Filters are written for one mailbox type."""
+
     GMAIL = "gmail"
+
+
+provider_enum = Enum(InboxProvider, name="inbox_provider", values_callable=lambda e: [m.value for m in e])
 
 
 class Inbox(TimestampMixin, Base):
@@ -23,9 +28,7 @@ class Inbox(TimestampMixin, Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    provider: Mapped[InboxProvider] = mapped_column(
-        Enum(InboxProvider, name="inbox_provider", values_callable=lambda e: [m.value for m in e])
-    )
+    provider: Mapped[InboxProvider] = mapped_column(provider_enum)
     name: Mapped[str] = mapped_column(String(100))
     email_address: Mapped[str] = mapped_column(String(320))
     notes: Mapped[str | None] = mapped_column(Text)

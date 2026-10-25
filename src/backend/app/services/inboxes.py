@@ -6,14 +6,37 @@ from sqlalchemy.orm import selectinload
 
 from app.core.crypto import encrypt
 from app.models.inbox import Inbox, InboxCredential, InboxProvider
-from app.schemas.inbox import InboxDraft
+from app.models.scan import InboxSync, Scan
+from app.schemas.inbox import InboxDraft, InboxLatestScan, InboxRead, TagRead
+from app.services.filters import active_filters
 from app.services.gmail_oauth import GoogleTokens
 from app.services.tags import get_or_create_tags
 
 
-async def list_inboxes(session: AsyncSession) -> list[Inbox]:
-    result = await session.scalars(select(Inbox).order_by(Inbox.created_at))
-    return list(result)
+async def list_inboxes(session: AsyncSession) -> list[InboxRead]:
+    inboxes = list(await session.scalars(select(Inbox).order_by(Inbox.created_at)))
+    active = await active_filters(session)
+    scanned_until = dict((await session.execute(select(InboxSync.inbox_id, InboxSync.scanned_until))).all())
+    latest = select(Scan).distinct(Scan.inbox_id).order_by(Scan.inbox_id, Scan.created_at.desc())
+    last_scans = {scan.inbox_id: scan for scan in await session.scalars(latest)}
+    return [
+        InboxRead(
+            id=inbox.id,
+            provider=inbox.provider,
+            name=inbox.name,
+            email_address=inbox.email_address,
+            notes=inbox.notes,
+            tags=[TagRead.model_validate(tag) for tag in inbox.tags],
+            connected_at=inbox.connected_at,
+            created_at=inbox.created_at,
+            active_filters=sum(1 for f in active if f.covers(inbox)),
+            scanned_until=scanned_until.get(inbox.id),
+            last_scan=InboxLatestScan.model_validate(last_scans[inbox.id], from_attributes=True)
+            if inbox.id in last_scans
+            else None,
+        )
+        for inbox in inboxes
+    ]
 
 
 async def save_gmail_inbox(

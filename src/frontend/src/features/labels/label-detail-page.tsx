@@ -1,4 +1,4 @@
-import { ArrowLeft, Filter, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, ListFilter, TriangleAlert } from 'lucide-react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 
 import { BarList } from '@/components/charts/bar-list'
@@ -10,12 +10,12 @@ import { PageBody } from '@/components/layout/page-body'
 import { Skeleton } from '@/components/ui/skeleton'
 import { bucketTitle, granularityLabel, toColumns } from '@/features/stats/timeline'
 import { formatDate, formatDayMonth, formatNumber, formatSender, senderAddress } from '@/lib/format'
-import { cn } from '@/lib/utils'
 import { useLabel, useLabelEmails, useLabelStats } from './api'
-import { labelColorClass } from './colors'
 import { DeleteLabelDialog } from './delete-label-dialog'
 import { EditLabelDialog } from './edit-label-dialog'
+import { LabelDot } from './label-dot'
 import { LabelEmailsTable } from './label-emails-table'
+import { NormalizedName } from './label-name-field'
 
 const PAGE_SIZE = 25
 
@@ -31,7 +31,7 @@ export function LabelDetailPage() {
 
   const backLink = (
     <Link
-      to="/discovery/labels"
+      to="/automation/labels"
       className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
     >
       <ArrowLeft className="size-4" />
@@ -59,31 +59,39 @@ export function LabelDetailPage() {
         ) : (
           <div className="flex items-start gap-3">
             <span className="mt-1 flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary">
-              <span className={cn('size-3.5 rounded-full', labelColorClass[label.data.color])} aria-hidden="true" />
+              <LabelDot color={label.data.color} className="size-3.5" />
             </span>
             <div className="min-w-0 flex-1 space-y-1">
-              <h1 className="truncate font-mono text-xl font-semibold tracking-tight md:text-2xl">{label.data.name}</h1>
-              {label.data.description && <p className="text-sm text-muted-foreground">{label.data.description}</p>}
-              {label.data.filter_condition ? (
-                <p className="flex items-start gap-1.5 pt-1 text-sm text-muted-foreground">
-                  <Filter className="mt-0.5 size-3.5 shrink-0" aria-label="Filter condition" />
-                  <span>
-                    {label.data.filter_condition}
-                    <span className="ml-1.5 whitespace-nowrap text-xs text-muted-foreground/70">
-                      · match ≥ {label.data.match_threshold.toFixed(2)}
+              <h1 className="truncate font-serif text-2xl font-semibold tracking-tight md:text-3xl">
+                {label.data.display_name}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Normalised name <NormalizedName name={label.data.name} />
+              </p>
+              {label.data.filters.length > 0 ? (
+                <p className="flex flex-wrap items-center gap-1.5 pt-1 text-sm text-muted-foreground">
+                  <ListFilter className="size-3.5 shrink-0" aria-hidden="true" />
+                  Added by
+                  {label.data.filters.map((f, i) => (
+                    <span key={f.id}>
+                      <Link to={`/automation/filters/${f.id}`} className="text-foreground underline-offset-2 hover:underline">
+                        {f.name}
+                      </Link>
+                      {f.status === 'inactive' && ' (inactive)'}
+                      {i < label.data.filters.length - 1 && ','}
                     </span>
-                  </span>
+                  ))}
                 </p>
               ) : (
                 <p className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
                   <TriangleAlert className="size-3.5" />
-                  No filter condition
+                  No filter adds this label
                 </p>
               )}
             </div>
             <div className="flex shrink-0 items-center">
               <EditLabelDialog label={label.data} />
-              <DeleteLabelDialog label={label.data} onDeleted={() => navigate('/discovery/labels')} />
+              <DeleteLabelDialog label={label.data} onDeleted={() => navigate('/automation/labels')} />
             </div>
           </div>
         )}
@@ -105,9 +113,9 @@ export function LabelDetailPage() {
                 <StatTile label="Emails" value={formatNumber(stats.data.emails)} hint="Across all inboxes" />
                 <StatTile label="Last 30 days" value={formatNumber(stats.data.emails_last_30_days)} hint="By sent date" />
                 <StatTile
-                  label="Avg. confidence"
-                  value={stats.data.avg_probability === null ? '—' : `${Math.round(stats.data.avg_probability * 100)}%`}
-                  hint="When applied"
+                  label="Filters"
+                  value={formatNumber(label.data?.filters.filter((f) => f.status === 'active').length ?? 0)}
+                  hint={`Active, of ${formatNumber(label.data?.filters.length ?? 0)}`}
                 />
                 <StatTile
                   label="Latest email"
@@ -135,6 +143,15 @@ export function LabelDetailPage() {
                   </ChartCard>
 
                   <div className="grid gap-4 lg:grid-cols-2">
+                    <ChartCard
+                      title="By filter"
+                      description="Which filter added the label"
+                      table={
+                        <ChartTable columns={['Filter', 'Emails']} rows={stats.data.by_filter.map((f) => [f.name, f.emails])} />
+                      }
+                    >
+                      <BarList items={stats.data.by_filter.map((f) => ({ key: f.filter_id, label: f.name, value: f.emails }))} />
+                    </ChartCard>
                     <ChartCard
                       title="Top senders"
                       table={

@@ -2,11 +2,12 @@ import { createBrowserRouter, Navigate } from 'react-router'
 
 import { AppShell } from '@/components/layout/app-shell'
 import { DashboardPage } from '@/features/dashboard/dashboard-page'
+import { FilterEditorPage } from '@/features/filters/filter-editor-page'
+import { FiltersPage } from '@/features/filters/filters-page'
 import { InboxesPage } from '@/features/inboxes/inboxes-page'
 import { LabelDetailPage } from '@/features/labels/label-detail-page'
 import { LabelsPage } from '@/features/labels/labels-page'
-import { RunDetailPage } from '@/features/runs/run-detail-page'
-import { RunsPage } from '@/features/runs/runs-page'
+import { ScansPage } from '@/features/scans/scans-page'
 
 export const router = createBrowserRouter([
   {
@@ -15,13 +16,13 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/dashboard" replace /> },
       { path: 'dashboard', element: <DashboardPage /> },
-      // Old Overview links land on the Dashboard, which replaced it.
-      { path: 'discovery/overview', element: <Navigate to="/dashboard" replace /> },
       { path: 'connections/inbox', element: <InboxesPage /> },
-      { path: 'discovery/labels', element: <LabelsPage /> },
-      { path: 'discovery/labels/:labelId', element: <LabelDetailPage /> },
-      { path: 'discovery/runs', element: <RunsPage /> },
-      { path: 'discovery/runs/:runId', element: <RunDetailPage /> },
+      { path: 'automation/filters', element: <FiltersPage /> },
+      { path: 'automation/filters/new', element: <FilterEditorPage /> },
+      { path: 'automation/filters/:filterId', element: <FilterEditorPage /> },
+      { path: 'automation/labels', element: <LabelsPage /> },
+      { path: 'automation/labels/:labelId', element: <LabelDetailPage /> },
+      { path: 'automation/scans', element: <ScansPage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

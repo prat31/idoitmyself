@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '@/lib/api'
+import type { ScanKind, ScanStatus } from '@/features/scans/api'
 
 export type InboxProvider = 'gmail'
 
@@ -18,6 +19,20 @@ export type Inbox = {
   tags: Tag[]
   connected_at: string
   created_at: string
+  /** Active filters whose scope covers this inbox (by its mailbox type or by name). */
+  active_filters: number
+  /** End of the last scheduled scan's window (null: never scanned on schedule). */
+  scanned_until: string | null
+  last_scan: {
+    id: string
+    kind: ScanKind
+    status: ScanStatus
+    error: string | null
+    emails_found: number
+    emails_processed: number
+    created_at: string
+    finished_at: string | null
+  } | null
 }
 
 export type InboxDraft = {
@@ -35,7 +50,12 @@ export const tagKeys = {
 }
 
 export function useInboxes() {
-  return useQuery({ queryKey: inboxKeys.all, queryFn: () => apiFetch<Inbox[]>('/email/inboxes') })
+  // Scan state changes on the server's schedule, so refresh now and then.
+  return useQuery({
+    queryKey: inboxKeys.all,
+    queryFn: () => apiFetch<Inbox[]>('/email/inboxes'),
+    refetchInterval: 30_000,
+  })
 }
 
 export function useTags() {

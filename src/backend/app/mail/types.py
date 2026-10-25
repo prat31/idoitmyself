@@ -1,6 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.core.retry import TransientError
 
@@ -15,8 +15,8 @@ class Attachment:
 
 @dataclass(frozen=True)
 class FetchedEmail:
-    """A provider-agnostic email as read from a mailbox. `body_text` is used for classification only
-    and is never stored."""
+    """A provider-agnostic email as read from a mailbox. `body_text` is used for filtering only and is
+    never stored."""
 
     provider_message_id: str
     provider_thread_id: str | None
@@ -29,6 +29,11 @@ class FetchedEmail:
     snippet: str | None
     body_text: str
     attachments: tuple[Attachment, ...] = ()
+    # Every header, keyed by lowercase name (repeated headers joined with ", ").
+    headers: dict[str, str] = field(default_factory=dict)
+    size_bytes: int | None = None
+    # Values for the provider's own filter fields (see app.filters.fields), e.g. Gmail's category.
+    provider_fields: dict[str, Any] = field(default_factory=dict)
 
 
 class MailSourceError(Exception):
@@ -40,10 +45,10 @@ class TransientMailSourceError(MailSourceError, TransientError):
 
 
 class MailSource(Protocol):
-    """Read access to one inbox. Each provider implements this; run logic only depends on it."""
+    """Read access to one inbox. Each provider implements this; scan logic only depends on it."""
 
     async def list_message_ids(self, start: datetime, end: datetime) -> list[str]:
-        """Ids of messages whose sent/received time is in [start, end)."""
+        """Ids of messages received in [start, end)."""
         ...
 
     async def fetch(self, message_id: str) -> FetchedEmail: ...
