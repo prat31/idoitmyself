@@ -23,8 +23,16 @@ class TimelineBucket(BaseModel):
 class LabelCount(BaseModel):
     label_id: uuid.UUID
     name: str
+    display_name: str
     color: str
     emails: int
+
+
+class FilterCount(BaseModel):
+    filter_id: uuid.UUID
+    name: str
+    label_display_name: str
+    emails: int  # emails this filter labelled
 
 
 class InboxCount(BaseModel):
@@ -46,6 +54,7 @@ class Overview(BaseModel):
     totals: StatsTotals
     timeline: list[TimelineBucket]
     by_label: list[LabelCount]
+    by_filter: list[FilterCount]
     by_inbox: list[InboxCount]
     top_senders: list[SenderCount]
 
@@ -55,17 +64,17 @@ class LabelStats(BaseModel):
     granularity: Granularity
     emails: int
     emails_last_30_days: int
-    avg_probability: float | None
     first_sent_at: datetime | None
     last_sent_at: datetime | None
     timeline: list[TimelineBucket]
+    by_filter: list[FilterCount]
     by_inbox: list[InboxCount]
     top_senders: list[SenderCount]
 
 
 class EmailLabelRef(BaseModel):
     label_id: uuid.UUID
-    name: str
+    display_name: str
     color: str
 
 
@@ -77,9 +86,12 @@ class LabelledEmail(BaseModel):
     from_address: str | None
     subject: str | None
     snippet: str | None
-    probability: float
-    run_id: uuid.UUID | None
-    run_name: str | None
+    # The filter that added the label (null if it was deleted since) and when.
+    filter_id: uuid.UUID | None
+    filter_name: str | None
+    applied_at: datetime
+    # Opens the message in the provider's web UI (null if the provider has none).
+    open_url: str | None
     other_labels: list[EmailLabelRef]
 
 

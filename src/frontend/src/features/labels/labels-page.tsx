@@ -43,7 +43,7 @@ export function LabelsPage() {
     <>
       <PageHeader
         title="Labels"
-        description="Labels classify your email across every inbox. Each email carries one or more."
+        description="Filters add labels to the emails they match, across every inbox."
         actions={hasLabels ? <AddLabelDialog trigger={addButton} /> : undefined}
       />
       <PageBody>
@@ -61,7 +61,7 @@ export function LabelsPage() {
           <EmptyState
             icon={Tag}
             title="No labels yet"
-            description="Create labels to classify your email. IDIM will use them to organise every inbox."
+            description="Create a label here, or while creating a filter. Every filter adds one label."
             action={<AddLabelDialog trigger={addButton} />}
           />
         )}

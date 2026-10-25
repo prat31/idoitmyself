@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react'
-import { Cable, Compass, History, Inbox, LayoutDashboard, Tag, type LucideIcon } from 'lucide-react'
+import { Cable, Inbox, LayoutDashboard, ListFilter, ScanSearch, Tag, Workflow, type LucideIcon } from 'lucide-react'
 
-import { RunsActivityIndicator } from '@/features/runs/runs-activity-indicator'
+import { ScansActivityIndicator } from '@/features/scans/scans-activity-indicator'
 
 /**
  * Sidebar navigation has at most two levels. A top-level section is either a link itself (`path`, no
@@ -36,18 +36,19 @@ export const navSections: NavSection[] = [
     path: '/dashboard',
   },
   {
-    id: 'discovery',
-    label: 'Discovery',
-    icon: Compass,
+    id: 'automation',
+    label: 'Automation',
+    icon: Workflow,
     subSections: [
+      { id: 'automation.filters', label: 'Filters', icon: ListFilter, path: '/automation/filters' },
+      { id: 'automation.labels', label: 'Labels', icon: Tag, path: '/automation/labels' },
       {
-        id: 'discovery.runs',
-        label: 'Runs',
-        icon: History,
-        path: '/discovery/runs',
-        indicator: RunsActivityIndicator,
+        id: 'automation.scans',
+        label: 'Scans',
+        icon: ScanSearch,
+        path: '/automation/scans',
+        indicator: ScansActivityIndicator,
       },
-      { id: 'discovery.labels', label: 'Labels', icon: Tag, path: '/discovery/labels' },
     ],
   },
   {

@@ -8,7 +8,7 @@ import { MultiSelect } from '@/components/ui/multi-select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useInboxes } from '@/features/inboxes/api'
 import { useLabels } from '@/features/labels/api'
-import { labelColorClass } from '@/features/labels/colors'
+import { LabelDot } from '@/features/labels/label-dot'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { RANGE_PRESETS, type RangeId } from './date-filter'
@@ -134,15 +134,14 @@ export function OverviewFilters({ state, onChange }: { state: FilterState; onCha
       </select>
       <div className="sm:w-72">
         <MultiSelect
-          mono
           value={state.labelIds}
           onChange={(labelIds) => onChange({ labelIds })}
           placeholder="All labels"
           searchPlaceholder="Search labels"
           options={labels.map((label) => ({
             value: label.id,
-            label: label.name,
-            icon: <span className={cn('size-2 shrink-0 rounded-full', labelColorClass[label.color])} aria-hidden="true" />,
+            label: label.display_name,
+            icon: <LabelDot color={label.color} />,
           }))}
         />
       </div>

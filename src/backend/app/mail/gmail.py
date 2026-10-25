@@ -7,6 +7,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,12 @@ from app.core.quota import QuotaBudget
 from app.core.redis import loop_redis
 from app.core.retry import parse_retry_after
 from app.mail.text import html_to_text, normalize_whitespace
-from app.mail.types import Attachment, FetchedEmail, MailSourceError, TransientMailSourceError
+from app.mail.types import (
+    Attachment,
+    FetchedEmail,
+    MailSourceError,
+    TransientMailSourceError,
+)
 from app.models.inbox import InboxCredential
 from app.services.gmail_oauth import OAuthError, refresh_access_token
 
@@ -26,6 +32,16 @@ TOKEN_REFRESH_MARGIN = timedelta(minutes=2)
 # Quota units per call (developers.google.com/workspace/gmail/api/reference/quota).
 UNITS_LIST = 5
 UNITS_GET_FULL = 60
+UNITS_LABELS = 1
+
+# Gmail's inbox tabs, as label ids.
+CATEGORY_LABELS = {
+    "CATEGORY_PERSONAL": "primary",
+    "CATEGORY_SOCIAL": "social",
+    "CATEGORY_PROMOTIONS": "promotions",
+    "CATEGORY_UPDATES": "updates",
+    "CATEGORY_FORUMS": "forums",
+}
 
 # Gmail reports per-user throttling as 403 with these reasons (as well as 429).
 RATE_LIMIT_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"})
@@ -49,6 +65,9 @@ class GmailSource:
         self._in_flight = _process_gmail_limiter()
         # Shared across processes: every Gmail call reserves its quota units first.
         self._quota = quota if quota is not None else gmail_quota_budget()
+        # Gmail label id -> name, read once per source (user labels have opaque ids like "Label_12").
+        self._label_names: dict[str, str] | None = None
+        self._labels_lock = asyncio.Lock()
 
     # --- auth -------------------------------------------------------------------------------------
 
@@ -84,7 +103,11 @@ class GmailSource:
             return token
 
     async def _get(
-        self, path: str, params: dict[str, Any] | list[tuple[str, Any]], *, units: int
+        self,
+        path: str,
+        params: dict[str, Any] | list[tuple[str, Any]],
+        *,
+        units: int,
     ) -> dict[str, Any]:
         """One Gmail API call. Never sleeps: throttling and server errors raise
         TransientMailSourceError so the caller can re-queue the work with a delay."""
@@ -121,8 +144,9 @@ class GmailSource:
     # --- MailSource -------------------------------------------------------------------------------
 
     async def list_message_ids(self, start: datetime, end: datetime) -> list[str]:
-        # Gmail's after:/before: accept epoch seconds; after is inclusive-ish, before exclusive.
-        query = f"after:{int(start.timestamp()) - 1} before:{int(end.timestamp())}"
+        # after:/before: accept epoch seconds (the received time); after is exclusive (hence the -1),
+        # before is exclusive. Drafts aren't scanned; spam and trash are left out by default.
+        query = f"after:{int(start.timestamp()) - 1} before:{int(end.timestamp())} -in:drafts"
         ids: list[str] = []
         page_token: str | None = None
         while True:
@@ -137,7 +161,19 @@ class GmailSource:
 
     async def fetch(self, message_id: str) -> FetchedEmail:
         message = await self._get(f"/messages/{message_id}", {"format": "full"}, units=UNITS_GET_FULL)
-        return parse_message(message)
+        return parse_message(message, await self._labels())
+
+    async def _labels(self) -> dict[str, str]:
+        async with self._labels_lock:
+            if self._label_names is None:
+                body = await self._get("/labels", {}, units=UNITS_LABELS)
+                self._label_names = {label["id"]: label["name"] for label in body.get("labels", [])}
+            return self._label_names
+
+
+def web_url(email_address: str, message_id: str) -> str:
+    """Opens the message in Gmail's web UI, in the right signed-in account (authuser)."""
+    return f"https://mail.google.com/mail/?authuser={quote(email_address)}#all/{quote(message_id)}"
 
 
 def gmail_quota_budget() -> QuotaBudget:
@@ -178,7 +214,12 @@ def _error_reasons(response: httpx.Response) -> list[str]:
 
 
 def _header_map(payload: dict[str, Any]) -> dict[str, str]:
-    return {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
+    """Headers by lowercase name; repeated headers are joined with ", "."""
+    headers: dict[str, str] = {}
+    for header in payload.get("headers", []):
+        name = header["name"].lower()
+        headers[name] = f"{headers[name]}, {header['value']}" if name in headers else header["value"]
+    return headers
 
 
 def _decode(data: str) -> str:
@@ -226,7 +267,18 @@ def extract_attachments(payload: dict[str, Any]) -> tuple[Attachment, ...]:
     return tuple(found)
 
 
-def parse_message(message: dict[str, Any]) -> FetchedEmail:
+def gmail_fields(label_ids: list[str], label_names: dict[str, str]) -> dict[str, Any]:
+    """Values for the Gmail-only filter fields (see app.filters.fields)."""
+    category = next((CATEGORY_LABELS[i] for i in label_ids if i in CATEGORY_LABELS), None)
+    return {
+        "gmail_category": category,
+        "gmail_labels": [label_names.get(i, i) for i in label_ids],
+        "gmail_is_important": "IMPORTANT" in label_ids,
+        "gmail_is_starred": "STARRED" in label_ids,
+    }
+
+
+def parse_message(message: dict[str, Any], label_names: dict[str, str] | None = None) -> FetchedEmail:
     payload = message.get("payload", {})
     headers = _header_map(payload)
     sent_at = datetime.fromtimestamp(int(message["internalDate"]) / 1000, tz=UTC)
@@ -247,4 +299,7 @@ def parse_message(message: dict[str, Any]) -> FetchedEmail:
         snippet=html_to_text(message["snippet"]) if message.get("snippet") else None,
         body_text=extract_body_text(payload),
         attachments=extract_attachments(payload),
+        headers=headers,
+        size_bytes=message.get("sizeEstimate"),
+        provider_fields=gmail_fields(message.get("labelIds", []), label_names or {}),
     )

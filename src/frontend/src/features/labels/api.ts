@@ -1,30 +1,25 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '@/lib/api'
-import type { InboxCount, SenderCount, TimelineBucket, Granularity } from '@/features/stats/api'
+import type { FilterCount, InboxCount, SenderCount, TimelineBucket, Granularity } from '@/features/stats/api'
 import { timeZone } from '@/features/stats/api'
 import type { LabelColor } from './colors'
 
+export type LabelFilterRef = { id: string; name: string; status: 'active' | 'inactive' }
+
 export type Label = {
   id: string
+  /** Normalised name (lowercase snake case): unique and immutable. */
   name: string
-  description: string | null
+  /** What the UI shows; editable. */
+  display_name: string
+  /** From the fixed palette; shown as a dot beside the name. Editable. */
   color: LabelColor
-  /** Plain-language rule for which emails belong here; the classification question for the model. */
-  filter_condition: string | null
-  /** Jev's P(yes) must reach this for a run to apply the label. */
-  match_threshold: number
   /** Emails carrying this label, across all inboxes. */
   email_count: number
+  /** Filters that write this label. A label can only be deleted when there are none. */
+  filters: LabelFilterRef[]
   created_at: string
-}
-
-export type LabelCreate = {
-  name: string
-  description: string | null
-  color: LabelColor
-  filter_condition: string | null
-  match_threshold: number
 }
 
 export const labelKeys = {
@@ -38,18 +33,17 @@ export function useLabels() {
 export function useCreateLabel() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: LabelCreate) => apiFetch<Label>('/labels', { method: 'POST', body: JSON.stringify(data) }),
+    mutationFn: ({ displayName, color }: { displayName: string; color: LabelColor }) =>
+      apiFetch<Label>('/labels', { method: 'POST', body: JSON.stringify({ display_name: displayName, color }) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: labelKeys.all }),
   })
 }
 
-/** Editable fields of a label. The name is immutable (the API rejects it). */
-export type LabelChanges = Partial<Pick<Label, 'description' | 'color' | 'filter_condition' | 'match_threshold'>>
-
+/** The display name and colour are editable; the normalised name isn't. */
 export function useUpdateLabel() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, changes }: { id: string; changes: LabelChanges }) =>
+    mutationFn: ({ id, changes }: { id: string; changes: { display_name?: string; color?: LabelColor } }) =>
       apiFetch<Label>(`/labels/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: labelKeys.all }),
   })
@@ -68,10 +62,10 @@ export type LabelStats = {
   granularity: Granularity
   emails: number
   emails_last_30_days: number
-  avg_probability: number | null
   first_sent_at: string | null
   last_sent_at: string | null
   timeline: TimelineBucket[]
+  by_filter: FilterCount[]
   by_inbox: InboxCount[]
   top_senders: SenderCount[]
 }
@@ -84,10 +78,13 @@ export type LabelledEmail = {
   from_address: string | null
   subject: string | null
   snippet: string | null
-  probability: number
-  run_id: string | null
-  run_name: string | null
-  other_labels: { label_id: string; name: string; color: LabelColor }[]
+  /** The filter that added the label (null if it was deleted since). */
+  filter_id: string | null
+  filter_name: string | null
+  applied_at: string
+  /** Opens the message in its provider's web UI (null if there's none). */
+  open_url: string | null
+  other_labels: { label_id: string; display_name: string; color: LabelColor }[]
 }
 
 export type EmailPage = { items: LabelledEmail[]; total: number; page: number; page_size: number }

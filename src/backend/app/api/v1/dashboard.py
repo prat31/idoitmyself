@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_session
 from app.schemas.dashboard import (
     DashboardAttention,
-    DashboardCoverage,
     DashboardRecent,
     DashboardStatus,
     DashboardSummary,
@@ -24,10 +23,10 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 async def summary(
     session: SessionDep,
     tz: str = "UTC",
-    start: Annotated[datetime | None, Query(description="Runs finished at or after")] = None,
-    end: Annotated[datetime | None, Query(description="Runs finished before")] = None,
+    start: Annotated[datetime | None, Query(description="Scans finished at or after")] = None,
+    end: Annotated[datetime | None, Query(description="Scans finished before")] = None,
 ):
-    """Runs, model spend (over time) and estimated savings in the range, plus labels this vs last month."""
+    """Scans and labels applied in the range, filter counts, plus labels this vs last month."""
     try:
         return await dashboard_service.summary(session, start=start, end=end, tz_name=tz)
     except StatsQueryError as exc:
@@ -36,20 +35,14 @@ async def summary(
 
 @router.get("/attention", response_model=DashboardAttention)
 async def attention(session: SessionDep):
-    """Things to act on: labels without/with stale conditions, tuning candidates, problem runs/inboxes."""
+    """Things to act on: failing inboxes/scans, filters that never matched, labels nothing adds."""
     return await dashboard_service.attention(session)
 
 
 @router.get("/status", response_model=DashboardStatus)
 async def live_status(session: SessionDep):
-    """Per inbox: last scan, how far back it's scanned, and Gmail quota used in the current window."""
+    """Per inbox: initial scan state, last scan, scan in progress, and quota used in the current window."""
     return await dashboard_service.status(session)
-
-
-@router.get("/coverage", response_model=DashboardCoverage)
-async def coverage(session: SessionDep):
-    """Date ranges already covered per label (current condition, every connected inbox)."""
-    return await dashboard_service.coverage(session)
 
 
 @router.get("/recent", response_model=DashboardRecent)

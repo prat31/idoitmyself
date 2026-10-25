@@ -39,3 +39,9 @@ def test_unknown_timezone_rejected():
     assert parse_timezone("Asia/Kolkata").key == "Asia/Kolkata"
     with pytest.raises(StatsQueryError):
         parse_timezone("Mars/Olympus")
+
+
+def test_search_text_is_matched_literally():
+    from app.services.emails import _escape_like
+
+    assert _escape_like("50%_off\\") == "50\\%\\_off\\\\"

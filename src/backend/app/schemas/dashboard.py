@@ -1,51 +1,47 @@
 import uuid
-from datetime import date, datetime
-from decimal import Decimal
-from typing import Literal
+from datetime import datetime
 
 from pydantic import BaseModel
 
-Granularity = Literal["day", "week", "month"]
-
-
-class SpendBucket(BaseModel):
-    start: date
-    cost_usd: Decimal
-    emails: int  # emails sent to the model
+from app.schemas.scan import ScanRead
 
 
 class LabelMonth(BaseModel):
     label_id: uuid.UUID
-    name: str
+    display_name: str
     color: str
     this_month: int
     last_month: int
 
 
 class DashboardSummary(BaseModel):
-    """Run and spend figures for the filtered range (by run finish time), plus month-on-month labels."""
+    """Scan figures for the filtered range (by scan finish time), filter counts, and month-on-month
+    labels."""
 
-    runs_completed: int
-    runs_failed: int
-    cost_usd: Decimal
-    emails_sent_to_model: int
-    emails_skipped: int
-    estimated_saved_usd: Decimal  # skipped emails × average model cost per classified email
-    spend_granularity: Granularity
-    spend: list[SpendBucket]
+    scans_completed: int
+    scans_failed: int
+    emails_scanned: int  # new emails fetched and filtered (excludes ones already stored)
+    emails_labelled: int  # emails that got at least one label (one email can get several)
+    active_filters: int
+    inactive_filters: int
     label_months: list[LabelMonth]
+
+
+class AttentionFilter(BaseModel):
+    filter_id: uuid.UUID
+    name: str
+    label_display_name: str
 
 
 class AttentionLabel(BaseModel):
     label_id: uuid.UUID
-    name: str
+    display_name: str
     color: str
-    count: int | None = None  # meaning depends on the list
 
 
-class AttentionRun(BaseModel):
-    run_id: uuid.UUID
-    name: str
+class AttentionScan(BaseModel):
+    scan_id: uuid.UUID
+    inbox_name: str
     status: str
     emails_failed: int
     error: str | None
@@ -57,51 +53,33 @@ class AttentionInbox(BaseModel):
     name: str
     email_address: str
     error: str
-    run_id: uuid.UUID
+    scan_id: uuid.UUID | None
 
 
 class DashboardAttention(BaseModel):
-    labels_without_condition: list[AttentionLabel]
-    labels_stale: list[AttentionLabel]  # condition edited since the last completed run (count unused)
-    labels_never_run: list[AttentionLabel]
-    labels_near_threshold: list[AttentionLabel]  # count = current answers within ±near of threshold
-    labels_likely_misses: list[AttentionLabel]  # count = current answers just below threshold
-    near_window: float
-    runs_with_problems: list[AttentionRun]  # failed, or completed with failed emails (last 30 days)
-    inboxes_with_errors: list[AttentionInbox]  # latest listing error per inbox
+    inboxes_with_errors: list[AttentionInbox]  # the inbox's latest finished scan failed
+    scans_with_problems: list[AttentionScan]  # failed, or completed with failed emails (last 30 days)
+    filters_never_matched: list[AttentionFilter]  # active, but haven't labelled anything yet
+    labels_without_active_filter: list[AttentionLabel]  # nothing adds them any more
+    inboxes_without_filters: list[AttentionInbox]  # no active filter covers it, so it isn't scanned
 
 
 class InboxStatus(BaseModel):
     inbox_id: uuid.UUID
     name: str
     email_address: str
-    last_scanned_at: datetime | None  # last completed run that covered this inbox
-    scanned_since: datetime | None  # earliest window start covered by a completed run
-    quota_used: int  # Gmail quota units reserved in the current budget window
+    provider: str
+    scanned_until: datetime | None  # end of the last scheduled scan's window
+    last_completed_scan_at: datetime | None
+    active_scan: ScanRead | None
+    quota_used: int  # provider quota units reserved in the current budget window
     quota_limit: int
     quota_window_seconds: int
 
 
 class DashboardStatus(BaseModel):
+    scan_interval_minutes: int
     inboxes: list[InboxStatus]
-
-
-class CoveredSpan(BaseModel):
-    start: datetime
-    end: datetime
-
-
-class LabelCoverageRow(BaseModel):
-    label_id: uuid.UUID
-    name: str
-    color: str
-    covered: list[CoveredSpan]  # merged ranges covered in every connected inbox, current condition
-
-
-class DashboardCoverage(BaseModel):
-    span_start: datetime | None
-    span_end: datetime
-    labels: list[LabelCoverageRow]
 
 
 class RecentMatch(BaseModel):
@@ -111,10 +89,12 @@ class RecentMatch(BaseModel):
     subject: str | None
     inbox_name: str
     label_id: uuid.UUID
-    label_name: str
-    color: str
-    probability: float
-    labelled_at: datetime
+    label_display_name: str
+    label_color: str
+    filter_name: str | None
+    applied_at: datetime
+    # Opens the message in the provider's web UI (null if the provider has none).
+    open_url: str | None
 
 
 class DashboardRecent(BaseModel):

@@ -82,3 +82,12 @@ def test_attachments_listed_without_inline_images():
     attachments = extract_attachments(payload)
     assert [(a.filename, a.mime_type) for a in attachments] == [("Statement_Oct2026.pdf", "application/pdf")]
     assert extract_body_text(payload) == "Statement attached"
+
+
+def test_web_url_opens_the_message_in_the_right_account():
+    from app.mail.gmail import web_url
+
+    assert (
+        web_url("me+x@gmail.com", "18f2a")
+        == "https://mail.google.com/mail/?authuser=me%2Bx%40gmail.com#all/18f2a"
+    )

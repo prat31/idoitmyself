@@ -1,12 +1,13 @@
-import { ChevronLeft, ChevronRight, Inbox as InboxIcon } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Inbox as InboxIcon, ListFilter } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { formatDateTime, formatNumber, formatSender } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { EmailLink, emailRowClass } from '@/features/emails/email-link'
 import type { EmailPage } from './api'
-import { labelColorClass } from './colors'
+import { LabelDot } from './label-dot'
 
-/** Paginated list of a label's emails: sender, subject + snippet, date, inbox, model confidence. */
+/** Paginated list of a label's emails: sender, subject + snippet, date, inbox, and the filter that added it. */
 export function LabelEmailsTable({
   data,
   stale,
@@ -31,12 +32,15 @@ export function LabelEmailsTable({
 
       {data.total === 0 ? (
         <p className="px-5 py-10 text-center text-sm text-muted-foreground">
-          No emails carry this label yet. Run it from Discovery › Runs.
+          No emails carry this label yet. Filters add it to emails scanned while they're active.
         </p>
       ) : (
         <ul className={cn('divide-y transition-opacity', stale && 'opacity-60')}>
           {data.items.map((email) => (
-            <li key={email.id} className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
+            <li
+              key={email.id}
+              className={cn('flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-start sm:gap-4 sm:px-5', emailRowClass)}
+            >
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <p className="min-w-0 truncate text-sm font-medium" title={email.from_address ?? undefined}>
@@ -49,7 +53,9 @@ export function LabelEmailsTable({
                     {formatDateTime(email.sent_at)}
                   </time>
                 </div>
-                <p className="truncate text-sm">{email.subject || '(no subject)'}</p>
+                <p className="truncate text-sm">
+                  <EmailLink url={email.open_url}>{email.subject || '(no subject)'}</EmailLink>
+                </p>
                 {email.snippet && <p className="line-clamp-1 text-xs text-muted-foreground">{email.snippet}</p>}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                   <span className="inline-flex items-center gap-1">
@@ -58,8 +64,8 @@ export function LabelEmailsTable({
                   </span>
                   {email.other_labels.map((other) => (
                     <span key={other.label_id} className="inline-flex items-center gap-1 rounded-md border px-1.5 py-px">
-                      <span className={cn('size-1.5 rounded-full', labelColorClass[other.color])} aria-hidden="true" />
-                      <span className="font-mono">{other.name}</span>
+                      <LabelDot color={other.color} className="size-1.5" />
+                      {other.display_name}
                     </span>
                   ))}
                 </div>
@@ -69,10 +75,11 @@ export function LabelEmailsTable({
                   {formatDateTime(email.sent_at)}
                 </time>
                 <span
-                  className="text-xs tabular-nums text-muted-foreground"
-                  title={email.run_name ? `Set by run “${email.run_name}”` : undefined}
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+                  title={`Labelled ${formatDateTime(email.applied_at)}`}
                 >
-                  Confidence <span className="font-medium text-foreground">{Math.round(email.probability * 100)}%</span>
+                  <ListFilter className="size-3" aria-label="Added by filter" />
+                  {email.filter_name ?? <span className="italic">deleted filter</span>}
                 </span>
               </div>
             </li>

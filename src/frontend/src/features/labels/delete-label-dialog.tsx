@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Loader2, Trash2 } from 'lucide-react'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import {
@@ -15,14 +16,16 @@ import {
 import { Button } from '@/components/ui/button'
 import { useDeleteLabel, type Label } from './api'
 
+/** Deletes a label, or — while filters still write it — explains which filters to change first. */
 export function DeleteLabelDialog({ label, onDeleted }: { label: Label; onDeleted?: () => void }) {
   const [open, setOpen] = useState(false)
   const deleteLabel = useDeleteLabel()
+  const blocked = label.filters.length > 0
 
   const onConfirm = () => {
     deleteLabel.mutate(label.id, {
       onSuccess: () => {
-        toast.success(`Label "${label.name}" deleted`)
+        toast.success(`Label "${label.display_name}" deleted`)
         setOpen(false)
         onDeleted?.()
       },
@@ -39,26 +42,51 @@ export function DeleteLabelDialog({ label, onDeleted }: { label: Label; onDelete
           variant="ghost"
           size="icon"
           className="size-8 text-muted-foreground hover:text-destructive"
-          aria-label={`Delete label ${label.name}`}
+          aria-label={`Delete label ${label.display_name}`}
         >
           <Trash2 />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete “{label.name}”?</AlertDialogTitle>
-          <AlertDialogDescription>
-            {label.email_count > 0
-              ? `It will be removed from ${emails}. This can't be undone.`
-              : "No emails carry this label. This can't be undone."}
+          <AlertDialogTitle>
+            {blocked ? `“${label.display_name}” is in use` : `Delete “${label.display_name}”?`}
+          </AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            {blocked ? (
+              <div className="space-y-2">
+                <p>
+                  A label can only be deleted when no filter adds it. Point these filters at another label, or delete
+                  them, first:
+                </p>
+                <ul className="list-inside list-disc">
+                  {label.filters.map((f) => (
+                    <li key={f.id}>
+                      <Link to={`/automation/filters/${f.id}`} className="font-medium text-foreground underline-offset-2 hover:underline">
+                        {f.name}
+                      </Link>
+                      {f.status === 'inactive' && ' (inactive)'}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p>
+                {label.email_count > 0
+                  ? `It will be removed from ${emails}. This can't be undone.`
+                  : "No emails carry this label. This can't be undone."}
+              </p>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={deleteLabel.isPending}>Cancel</AlertDialogCancel>
-          <Button variant="destructive" onClick={onConfirm} disabled={deleteLabel.isPending}>
-            {deleteLabel.isPending && <Loader2 className="animate-spin" />}
-            Delete label
-          </Button>
+          <AlertDialogCancel disabled={deleteLabel.isPending}>{blocked ? 'Close' : 'Cancel'}</AlertDialogCancel>
+          {!blocked && (
+            <Button variant="destructive" onClick={onConfirm} disabled={deleteLabel.isPending}>
+              {deleteLabel.isPending && <Loader2 className="animate-spin" />}
+              Delete label
+            </Button>
+          )}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

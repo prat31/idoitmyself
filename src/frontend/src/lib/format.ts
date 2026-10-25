@@ -12,6 +12,15 @@ export const formatDayMonth = (iso: string | Date) => dayMonthFormat.format(new 
 
 export const formatDateTime = (iso: string | Date) => dateTimeFormat.format(new Date(iso))
 
+const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' })
+export const formatTime = (iso: string | Date) => timeFormat.format(new Date(iso))
+
+/** "25 Oct, 3:30 pm – 4:00 pm"; the end's date is repeated only when it differs from the start's. */
+export function formatTimeRange(start: string | Date, end: string | Date): string {
+  const sameDay = new Date(start).toDateString() === new Date(end).toDateString()
+  return `${formatDayMonth(start)}, ${formatTime(start)} – ${sameDay ? '' : `${formatDayMonth(end)}, `}${formatTime(end)}`
+}
+
 /** "3 min ago", "yesterday", … */
 export function formatRelative(iso: string): string {
   const seconds = (new Date(iso).getTime() - Date.now()) / 1000
@@ -37,18 +46,12 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-/** USD with enough precision for sub-cent model costs. */
-export function formatCost(usd: number): string {
-  if (usd === 0) return '$0'
-  if (usd < 0.01) return `$${usd.toFixed(5)}`
-  return `$${usd.toFixed(2)}`
-}
 
 /** Display name from an RFC 5322 From header: '"Amazon.in" <ship@amazon.in>' → 'Amazon.in'. */
 export function formatSender(from: string | null): string {
   if (!from) return '(unknown sender)'
-  const match = from.match(/^\s*"?([^"<]+?)"?\s*<([^>]+)>\s*$/)
-  return match ? match[1] : from
+  const match = from.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/)
+  return match ? match[1] || match[2] : from // '<a@b.c>' (no name) → 'a@b.c'
 }
 
 /** Address part of a From header: '"Amazon.in" <ship@amazon.in>' → 'ship@amazon.in' (null if bare). */

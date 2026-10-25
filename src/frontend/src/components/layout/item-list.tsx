@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
 
-/** A stacked list of full-width rows (Inboxes, Labels, Runs): one container, hairline dividers. */
+/** A stacked list of full-width rows (Inboxes, Filters, Labels, Scans): one container, hairline dividers. */
 export function ItemList({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <ul className={cn('divide-y overflow-hidden rounded-xl border bg-card shadow-xs', className)}>

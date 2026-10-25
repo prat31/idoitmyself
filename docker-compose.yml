@@ -1,7 +1,8 @@
 # Full IDIM development stack: `docker compose up --build`
 #   web       http://localhost:5173  (Vite dev server, proxies /api to the api service)
 #   api       http://localhost:8000  (FastAPI; docs at /docs)
-#   worker    Celery worker for runs (queue: runs)
+#   worker    Celery worker for scans (queue: scans)
+#   beat      Celery beat: starts a scan of every inbox every SCAN_INTERVAL_MINUTES (30)
 #   rabbitmq  management UI at http://localhost:15672
 
 services:
@@ -69,12 +70,26 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # Celery worker: executes runs queued on RabbitMQ. Restart it to pick up code changes.
+  # Celery worker: executes scans queued on RabbitMQ. Restart it to pick up code changes.
   worker:
     build: ./src/backend
     env_file: .env
     environment: *backend-env
-    command: celery -A app.worker worker -Q runs --loglevel=INFO --concurrency=2 --without-gossip --without-mingle
+    command: celery -A app.worker worker -Q scans --loglevel=INFO --concurrency=2 --without-gossip --without-mingle
+    volumes:
+      - ./src/backend:/app
+    depends_on:
+      api:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  # Celery beat: publishes scans.tick on a fixed interval. Its schedule state is kept in /tmp.
+  beat:
+    build: ./src/backend
+    env_file: .env
+    environment: *backend-env
+    command: celery -A app.worker beat --loglevel=INFO --schedule /tmp/celerybeat-schedule
     volumes:
       - ./src/backend:/app
     depends_on:

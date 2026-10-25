@@ -20,6 +20,9 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     try {
       const body = await response.json()
       if (typeof body?.detail === 'string') message = body.detail
+      // FastAPI validation errors: [{ msg: 'Value error, Subject: invalid regex (…)', … }]
+      else if (Array.isArray(body?.detail) && typeof body.detail[0]?.msg === 'string')
+        message = body.detail[0].msg.replace(/^Value error, /, '')
     } catch {
       // non-JSON error body — keep the generic message
     }

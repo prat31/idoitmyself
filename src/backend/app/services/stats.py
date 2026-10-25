@@ -9,13 +9,15 @@ from sqlalchemy import Select, and_, exists, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.mail.sources import message_url
 from app.models.email import Email, EmailLabel
+from app.models.filter import Filter
 from app.models.inbox import Inbox
 from app.models.label import Label
-from app.models.run import Run
 from app.schemas.stats import (
     EmailLabelRef,
     EmailPage,
+    FilterCount,
     Granularity,
     InboxCount,
     LabelCount,
@@ -155,6 +157,21 @@ async def _top_senders(session: AsyncSession, filters: list) -> list[SenderCount
     return [SenderCount(sender=r[0], emails=r[1]) for r in rows]
 
 
+async def _by_filter(session: AsyncSession, filters: list, label_scope: list) -> list[FilterCount]:
+    """Emails each filter labelled (filters that labelled none in scope are left out)."""
+    rows = await session.execute(
+        select(Filter.id, Filter.name, Label.display_name, func.count())
+        .select_from(EmailLabel)
+        .join(Email, Email.id == EmailLabel.email_id)
+        .join(Filter, Filter.id == EmailLabel.filter_id)
+        .join(Label, Label.id == Filter.label_id)
+        .where(*filters, *label_scope)
+        .group_by(Filter.id, Label.display_name)
+        .order_by(func.count().desc(), Filter.name)
+    )
+    return [FilterCount(filter_id=r[0], name=r[1], label_display_name=r[2], emails=r[3]) for r in rows]
+
+
 async def overview(
     session: AsyncSession,
     *,
@@ -194,15 +211,21 @@ async def overview(
             )
         ).all()
     )
-    label_query = select(Label).order_by(Label.name)
+    label_query = select(Label).order_by(Label.display_name)
     if label_ids:
         label_query = label_query.where(Label.id.in_(label_ids))
     by_label = sorted(
         (
-            LabelCount(label_id=label.id, name=label.name, color=label.color, emails=counts.get(label.id, 0))
+            LabelCount(
+                label_id=label.id,
+                name=label.name,
+                display_name=label.display_name,
+                color=label.color,
+                emails=counts.get(label.id, 0),
+            )
             for label in await session.scalars(label_query)
         ),
-        key=lambda item: (-item.emails, item.name),
+        key=lambda item: (-item.emails, item.display_name.lower()),
     )
 
     first = start.astimezone(tz).date() if start else None
@@ -218,6 +241,7 @@ async def overview(
         ),
         timeline=timeline,
         by_label=by_label,
+        by_filter=await _by_filter(session, filters, label_scope),
         by_inbox=await _by_inbox(session, filters),
         top_senders=await _top_senders(session, filters),
     )
@@ -227,14 +251,9 @@ async def label_stats(session: AsyncSession, label: Label, tz_name: str) -> Labe
     tz = parse_timezone(tz_name)
     filters = _email_filters(None, None, None, [label.id])
     link = and_(EmailLabel.email_id == Email.id, EmailLabel.label_id == label.id)
-    emails, avg_probability, first_sent, last_sent = (
+    emails, first_sent, last_sent = (
         await session.execute(
-            select(
-                func.count(),
-                func.avg(EmailLabel.probability),
-                func.min(Email.sent_at),
-                func.max(Email.sent_at),
-            )
+            select(func.count(), func.min(Email.sent_at), func.max(Email.sent_at))
             .select_from(Email)
             .join(EmailLabel, link)
         )
@@ -251,10 +270,10 @@ async def label_stats(session: AsyncSession, label: Label, tz_name: str) -> Labe
         granularity=granularity,
         emails=emails,
         emails_last_30_days=recent or 0,
-        avg_probability=float(avg_probability) if avg_probability is not None else None,
         first_sent_at=first_sent,
         last_sent_at=last_sent,
         timeline=timeline,
+        by_filter=await _by_filter(session, filters, [EmailLabel.label_id == label.id]),
         by_inbox=await _by_inbox(session, filters),
         top_senders=await _top_senders(session, filters),
     )
@@ -266,10 +285,18 @@ async def label_emails(session: AsyncSession, label: Label, page: int, page_size
         select(func.count()).select_from(EmailLabel).where(EmailLabel.label_id == label.id)
     )
     query: Select = (
-        select(Email, EmailLabel.probability, EmailLabel.run_id, Run.name, Inbox.name)
+        select(
+            Email,
+            EmailLabel.filter_id,
+            Filter.name,
+            EmailLabel.applied_at,
+            Inbox.name,
+            Inbox.provider,
+            Inbox.email_address,
+        )
         .join(EmailLabel, and_(EmailLabel.email_id == Email.id, EmailLabel.label_id == label.id))
         .join(Inbox, Inbox.id == Email.inbox_id)
-        .outerjoin(Run, Run.id == EmailLabel.run_id)
+        .outerjoin(Filter, Filter.id == EmailLabel.filter_id)
         .order_by(Email.sent_at.desc(), Email.id)
         .offset((page - 1) * page_size)
         .limit(page_size)
@@ -280,13 +307,13 @@ async def label_emails(session: AsyncSession, label: Label, page: int, page_size
     others: dict[uuid.UUID, list[EmailLabelRef]] = {email_id: [] for email_id in email_ids}
     if email_ids:
         other_rows = await session.execute(
-            select(EmailLabel.email_id, Label.id, Label.name, Label.color)
+            select(EmailLabel.email_id, Label.id, Label.display_name, Label.color)
             .join(Label, Label.id == EmailLabel.label_id)
             .where(EmailLabel.email_id.in_(email_ids), EmailLabel.label_id != label.id)
-            .order_by(Label.name)
+            .order_by(Label.display_name)
         )
-        for email_id, label_id, name, color in other_rows:
-            others[email_id].append(EmailLabelRef(label_id=label_id, name=name, color=color))
+        for email_id, label_id, display_name, color in other_rows:
+            others[email_id].append(EmailLabelRef(label_id=label_id, display_name=display_name, color=color))
 
     return EmailPage(
         items=[
@@ -298,12 +325,13 @@ async def label_emails(session: AsyncSession, label: Label, page: int, page_size
                 from_address=email.from_address,
                 subject=email.subject,
                 snippet=email.snippet,
-                probability=probability,
-                run_id=run_id,
-                run_name=run_name,
+                filter_id=filter_id,
+                filter_name=filter_name,
+                applied_at=applied_at,
+                open_url=message_url(provider, address, email.provider_message_id),
                 other_labels=others[email.id],
             )
-            for email, probability, run_id, run_name, inbox_name in rows
+            for email, filter_id, filter_name, applied_at, inbox_name, provider, address in rows
         ],
         total=total or 0,
         page=page,
