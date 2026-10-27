@@ -31,3 +31,5 @@ class Label(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(50))
     display_name: Mapped[str] = mapped_column(String(50))
     color: Mapped[str] = mapped_column(String(20), default="gray", server_default=text("'gray'"))
+    # Set on built-in defaults (see app.defaults): they can be edited, but not deleted.
+    default_key: Mapped[str | None] = mapped_column(String(100), unique=True)

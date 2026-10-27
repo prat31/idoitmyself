@@ -16,11 +16,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { useDeleteLabel, type Label } from './api'
 
-/** Deletes a label, or — while filters still write it — explains which filters to change first. */
+/** Deletes a label, or — while filters still write it or processors run on it — explains which to change
+ *  first. */
 export function DeleteLabelDialog({ label, onDeleted }: { label: Label; onDeleted?: () => void }) {
   const [open, setOpen] = useState(false)
   const deleteLabel = useDeleteLabel()
-  const blocked = label.filters.length > 0
+  const blocked = label.filters.length > 0 || label.processors.length > 0
 
   const onConfirm = () => {
     deleteLabel.mutate(label.id, {
@@ -56,16 +57,29 @@ export function DeleteLabelDialog({ label, onDeleted }: { label: Label; onDelete
             {blocked ? (
               <div className="space-y-2">
                 <p>
-                  A label can only be deleted when no filter adds it. Point these filters at another label, or delete
-                  them, first:
+                  A label can only be deleted when no filter adds it and no processor runs on it. Point these filters
+                  at another label, or delete them and the processors, first:
                 </p>
                 <ul className="list-inside list-disc">
                   {label.filters.map((f) => (
                     <li key={f.id}>
+                      Filter{' '}
                       <Link to={`/automation/filters/${f.id}`} className="font-medium text-foreground underline-offset-2 hover:underline">
                         {f.name}
                       </Link>
                       {f.status === 'inactive' && ' (inactive)'}
+                    </li>
+                  ))}
+                  {label.processors.map((p) => (
+                    <li key={p.id}>
+                      Processor{' '}
+                      <Link
+                        to={`/automation/processors/${p.id}`}
+                        className="font-medium text-foreground underline-offset-2 hover:underline"
+                      >
+                        {p.name}
+                      </Link>
+                      {p.status === 'inactive' && ' (inactive)'}
                     </li>
                   ))}
                 </ul>

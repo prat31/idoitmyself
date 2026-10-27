@@ -2,8 +2,16 @@ import { NavLink } from 'react-router'
 
 import { Logo } from '@/components/brand/logo'
 import { ThemeToggle } from '@/components/theme/theme-toggle'
+import { NotificationsBell } from '@/features/notifications/notifications-bell'
 import { cn } from '@/lib/utils'
 import { navSections, type NavSection, type NavSubSection } from './nav-config'
+
+/** How many items a sub-section's page lists, muted at the end of the item. Nothing while loading. */
+function NavCount({ useCount }: { useCount: () => number | undefined }) {
+  const count = useCount()
+  if (count === undefined) return null
+  return <span className="text-xs tabular-nums text-muted-foreground">{count.toLocaleString()}</span>
+}
 
 function SubSectionLink({ item, onNavigate }: { item: NavSubSection; onNavigate?: () => void }) {
   const Icon = item.icon
@@ -29,7 +37,12 @@ function SubSectionLink({ item, onNavigate }: { item: NavSubSection; onNavigate?
             strokeWidth={1.75}
           />
           <span className="truncate">{item.label}</span>
-          {Indicator && <Indicator />}
+          {(item.useCount || Indicator) && (
+            <span className="ml-auto flex shrink-0 items-center gap-2">
+              {Indicator && <Indicator />}
+              {item.useCount && <NavCount useCount={item.useCount} />}
+            </span>
+          )}
         </>
       )}
     </NavLink>
@@ -83,12 +96,14 @@ function Section({ section, onNavigate }: { section: NavSection; onNavigate?: ()
   )
 }
 
-/** Logo, navigation and theme toggle. Rendered in the desktop sidebar and in the mobile drawer. */
-export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+/** Logo (with the notifications bell), navigation and theme toggle. Rendered in the desktop sidebar and
+ *  in the mobile drawer, where the bell lives in the top bar instead. */
+export function SidebarContent({ onNavigate, bell = true }: { onNavigate?: () => void; bell?: boolean }) {
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="px-5 pb-4 pt-5">
+      <div className="flex items-start justify-between gap-2 pb-4 pl-5 pr-3 pt-5">
         <Logo />
+        {bell && <NotificationsBell />}
       </div>
 
       <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-2">

@@ -7,16 +7,19 @@ from app.core.retry import TransientError
 
 @dataclass(frozen=True)
 class Attachment:
-    """A file attached to an email (name and type only; content is never downloaded)."""
+    """A file attached to an email: name and type. Scans never download its content; processors do,
+    with `ref` (the provider's opaque id for it, if it has one)."""
 
     filename: str
     mime_type: str
+    ref: str | None = field(default=None, compare=False)
+    size: int | None = field(default=None, compare=False)  # bytes, if the provider says
 
 
 @dataclass(frozen=True)
 class FetchedEmail:
-    """A provider-agnostic email as read from a mailbox. `body_text` is used for filtering only and is
-    never stored."""
+    """A provider-agnostic email as read from a mailbox. Bodies are used for filtering and processors,
+    and never stored."""
 
     provider_message_id: str
     provider_thread_id: str | None
@@ -34,6 +37,7 @@ class FetchedEmail:
     size_bytes: int | None = None
     # Values for the provider's own filter fields (see app.filters.fields), e.g. Gmail's category.
     provider_fields: dict[str, Any] = field(default_factory=dict)
+    body_html: str | None = None
 
 
 class MailSourceError(Exception):
@@ -52,3 +56,7 @@ class MailSource(Protocol):
         ...
 
     async def fetch(self, message_id: str) -> FetchedEmail: ...
+
+    async def fetch_attachment(self, message_id: str, ref: str) -> bytes:
+        """The content of an attachment, by the `ref` that fetch() gave it."""
+        ...

@@ -6,9 +6,13 @@ import { MultiSelect } from '@/components/ui/multi-select'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { providerById } from '@/features/inboxes/providers'
 import { cn } from '@/lib/utils'
+import { AddAiConditionButton, AiConditionCard } from './ai-condition'
 import type { FieldCatalogue, Join, MailboxType } from './api'
 import {
+  countAiConditions,
   fieldsFor,
+  isAiCondition,
+  newAiCondition,
   newCondition,
   newGroup,
   operatorsFor,
@@ -58,8 +62,18 @@ type ConditionRowProps = {
   onRemove?: () => void
 }
 
+/** A condition: a field condition, or an AI (natural-language) one in its own card. */
+function AnyCondition(props: ConditionRowProps) {
+  return isAiCondition(props.draft) ? (
+    <AiConditionCard draft={props.draft} error={props.error} onChange={props.onChange} onRemove={props.onRemove} />
+  ) : (
+    <ConditionRow {...props} />
+  )
+}
+
 function ConditionRow({ draft, catalogue, mailboxTypes, error, onChange, onRemove }: ConditionRowProps) {
-  const fields = fieldsFor(catalogue, mailboxTypes)
+  // AI conditions have their own card and button, not a place in the field list.
+  const fields = fieldsFor(catalogue, mailboxTypes).filter((f) => f.type !== 'ai')
   // The condition's field may no longer suit the scope (e.g. a Gmail-only field after another
   // provider's inbox was added); keep showing it, flagged, rather than silently changing the rule.
   const field = catalogue.fields.find((f) => f.key === draft.field)
@@ -218,6 +232,8 @@ function ConditionRow({ draft, catalogue, mailboxTypes, error, onChange, onRemov
 
 type GroupCardProps = {
   group: GroupDraft
+  /** AI conditions in the whole rule (the limit is per rule). */
+  aiCount: number
   catalogue: FieldCatalogue
   mailboxTypes: MailboxType[]
   errors: DraftErrors
@@ -225,7 +241,7 @@ type GroupCardProps = {
   onRemove: () => void
 }
 
-function GroupCard({ group, catalogue, mailboxTypes, errors, onChange, onRemove }: GroupCardProps) {
+function GroupCard({ group, aiCount, catalogue, mailboxTypes, errors, onChange, onRemove }: GroupCardProps) {
   const setItem = (index: number, next: ConditionDraft) =>
     onChange({ ...group, items: group.items.map((c, i) => (i === index ? next : c)) })
   return (
@@ -246,7 +262,7 @@ function GroupCard({ group, catalogue, mailboxTypes, errors, onChange, onRemove 
       {group.items.map((condition, index) => (
         <div key={condition.key}>
           {index > 0 && <JoinToggle value={condition.join} onChange={(join) => setItem(index, { ...condition, join })} />}
-          <ConditionRow
+          <AnyCondition
             draft={condition}
             catalogue={catalogue}
             mailboxTypes={mailboxTypes}
@@ -260,17 +276,25 @@ function GroupCard({ group, catalogue, mailboxTypes, errors, onChange, onRemove 
           />
         </div>
       ))}
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={() =>
-          onChange({ ...group, items: [...group.items, newCondition(catalogue, mailboxTypes, nextJoin(group.items))] })
-        }
-      >
-        <Plus />
-        Condition
-      </Button>
+      <div className="flex flex-wrap gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() =>
+            onChange({ ...group, items: [...group.items, newCondition(catalogue, mailboxTypes, nextJoin(group.items))] })
+          }
+        >
+          <Plus />
+          Condition
+        </Button>
+        <AddAiConditionButton
+          compact
+          keyConfigured={catalogue.ai_enabled}
+          count={aiCount}
+          onAdd={() => onChange({ ...group, items: [...group.items, newAiCondition(nextJoin(group.items))] })}
+        />
+      </div>
     </div>
   )
 }
@@ -294,6 +318,7 @@ export function RuleBuilder({
     onChange({ ...draft, items: draft.items.map((item, i) => (i === index ? next : item)) })
   const remove = (index: number) => onChange({ ...draft, items: draft.items.filter((_, i) => i !== index) })
   const canRemove = draft.items.length > 1
+  const aiCount = countAiConditions(draft)
 
   return (
     <div className="space-y-3">
@@ -307,7 +332,7 @@ export function RuleBuilder({
           <div key={item.key}>
             {index > 0 && <JoinToggle value={item.join} onChange={(join) => setItem(index, { ...item, join })} />}
             {item.type === 'condition' ? (
-              <ConditionRow
+              <AnyCondition
                 draft={item}
                 catalogue={catalogue}
                 mailboxTypes={mailboxTypes}
@@ -318,6 +343,7 @@ export function RuleBuilder({
             ) : (
               <GroupCard
                 group={item}
+                aiCount={aiCount}
                 catalogue={catalogue}
                 mailboxTypes={mailboxTypes}
                 errors={errors}
@@ -354,6 +380,11 @@ export function RuleBuilder({
           <Plus />
           Group
         </Button>
+        <AddAiConditionButton
+          keyConfigured={catalogue.ai_enabled}
+          count={aiCount}
+          onAdd={() => onChange({ ...draft, items: [...draft.items, newAiCondition(nextJoin(draft.items))] })}
+        />
       </div>
     </div>
   )

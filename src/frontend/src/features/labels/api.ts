@@ -19,6 +19,10 @@ export type Label = {
   email_count: number
   /** Filters that write this label. A label can only be deleted when there are none. */
   filters: LabelFilterRef[]
+  /** Processors that run on this label; they block deleting it too. */
+  processors: LabelFilterRef[]
+  /** A built-in default: editable, but it can't be deleted. */
+  is_default: boolean
   created_at: string
 }
 

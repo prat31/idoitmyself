@@ -1,6 +1,7 @@
 import { ListFilter, TriangleAlert } from 'lucide-react'
 import { Link } from 'react-router'
 
+import { DefaultBadge } from '@/components/layout/default-badge'
 import { Figure, ItemRow } from '@/components/layout/item-list'
 import { formatNumber } from '@/lib/format'
 import type { Label } from './api'
@@ -24,12 +25,15 @@ export function LabelRow({ label }: { label: Label }) {
         </Link>
       }
       badges={
-        active.length === 0 && (
-          <span className="inline-flex items-center gap-1 rounded-md bg-warning/10 px-1.5 py-0.5 text-[11px] font-medium text-warning">
-            <TriangleAlert className="size-3" />
-            No active filter
-          </span>
-        )
+        <>
+          {label.is_default && <DefaultBadge />}
+          {active.length === 0 && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-warning/10 px-1.5 py-0.5 text-[11px] font-medium text-warning">
+              <TriangleAlert className="size-3" />
+              No active filter
+            </span>
+          )}
+        </>
       }
       figures={
         <>
@@ -40,7 +44,7 @@ export function LabelRow({ label }: { label: Label }) {
       actions={
         <>
           <EditLabelDialog label={label} />
-          <DeleteLabelDialog label={label} />
+          {!label.is_default && <DeleteLabelDialog label={label} />}
         </>
       }
     >

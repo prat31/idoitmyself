@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_session
 from app.schemas.filter import FieldCatalogue, FilterCreate, FilterRead, FilterUpdate
 from app.services import filters as filter_service
-from app.services.filters import FilterInputError
+from app.services.filters import DefaultFilterError, FilterInputError
 
 router = APIRouter(prefix="/filters", tags=["filters"])
 
@@ -57,6 +57,12 @@ async def update_filter(filter_id: uuid.UUID, data: FilterUpdate, session: Sessi
 
 @router.delete("/{filter_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_filter(filter_id: uuid.UUID, session: SessionDep):
-    if not await filter_service.delete_filter(session, filter_id):
+    try:
+        deleted = await filter_service.delete_filter(session, filter_id)
+    except DefaultFilterError:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Built-in filters can't be deleted; deactivate it instead"
+        ) from None
+    if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filter not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

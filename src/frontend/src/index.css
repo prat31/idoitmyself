@@ -38,11 +38,19 @@
   --destructive-foreground: #fafafa;
   --success: #16a34a;
   --warning: #d97706;
+  --warning-foreground: #09090b;
 
   /* Charts — emphasis form: the series that matters in ink, context in a light gray */
   --chart-emphasis: #27272a;
   --chart-context: #d4d4d8;
   --chart-grid: #ececee;
+  /* Categorical series (identity), in fixed order; past five, groups fold into "Other" (context grey).
+     Validated with the dataviz palette checks on this surface. */
+  --chart-series-1: #2a78d6;
+  --chart-series-2: #eb6834;
+  --chart-series-3: #1baf7a;
+  --chart-series-4: #eda100;
+  --chart-series-5: #e87ba4;
 
   /* Label palette — muted so it sits quietly in the monochrome UI; used only as identity dots */
   --label-gray: #71717a;
@@ -54,6 +62,12 @@
   --label-blue: #4a7fd4;
   --label-violet: #8a63d2;
   --label-pink: #d0609b;
+
+  /* AI conditions (Jev) — the one deliberate splash of colour, used only for natural-language
+     conditions so they read as a feature of their own; a gradient from ai-1 through ai-3 */
+  --ai-1: #7c3aed;
+  --ai-2: #4f46e5;
+  --ai-3: #db2777;
 
   /* Lines */
   --border: #e4e4e7;
@@ -92,10 +106,16 @@
   --destructive-foreground: #fafafa;
   --success: #22c55e;
   --warning: #f59e0b;
+  --warning-foreground: #09090b;
 
   --chart-emphasis: #e4e4e7;
   --chart-context: #52525b;
   --chart-grid: #232326;
+  --chart-series-1: #3987e5;
+  --chart-series-2: #d95926;
+  --chart-series-3: #199e70;
+  --chart-series-4: #c98500;
+  --chart-series-5: #d55181;
 
   --label-gray: #a1a1aa;
   --label-red: #ef7b7b;
@@ -106,6 +126,10 @@
   --label-blue: #6f9ef0;
   --label-violet: #a787ea;
   --label-pink: #e786ba;
+
+  --ai-1: #a78bfa;
+  --ai-2: #818cf8;
+  --ai-3: #f472b6;
 
   --border: #27272a;
   --input: #3f3f46;
@@ -148,9 +172,15 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-chart-emphasis: var(--chart-emphasis);
   --color-chart-context: var(--chart-context);
   --color-chart-grid: var(--chart-grid);
+  --color-chart-series-1: var(--chart-series-1);
+  --color-chart-series-2: var(--chart-series-2);
+  --color-chart-series-3: var(--chart-series-3);
+  --color-chart-series-4: var(--chart-series-4);
+  --color-chart-series-5: var(--chart-series-5);
   --color-label-gray: var(--label-gray);
   --color-label-red: var(--label-red);
   --color-label-orange: var(--label-orange);
@@ -160,6 +190,9 @@
   --color-label-blue: var(--label-blue);
   --color-label-violet: var(--label-violet);
   --color-label-pink: var(--label-pink);
+  --color-ai-1: var(--ai-1);
+  --color-ai-2: var(--ai-2);
+  --color-ai-3: var(--ai-3);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

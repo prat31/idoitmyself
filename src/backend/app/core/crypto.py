@@ -16,3 +16,11 @@ def encrypt(plaintext: str) -> str:
 
 def decrypt(ciphertext: str) -> str:
     return _fernet().decrypt(ciphertext.encode()).decode()
+
+
+def encrypt_bytes(plaintext: bytes) -> str:
+    return _fernet().encrypt(plaintext).decode()
+
+
+def decrypt_bytes(ciphertext: str) -> bytes:
+    return _fernet().decrypt(ciphertext.encode())

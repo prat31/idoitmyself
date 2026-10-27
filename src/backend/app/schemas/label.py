@@ -62,6 +62,12 @@ class LabelFilterRef(BaseModel):
     status: str
 
 
+class LabelProcessorRef(BaseModel):
+    id: uuid.UUID
+    name: str
+    status: str
+
+
 class LabelRead(BaseModel):
     id: uuid.UUID
     name: str
@@ -70,4 +76,8 @@ class LabelRead(BaseModel):
     email_count: int
     # Filters that write this label; a label can only be deleted when there are none.
     filters: list[LabelFilterRef]
+    # Processors that run on this label; they block deleting it too.
+    processors: list[LabelProcessorRef]
+    # A built-in default: editable, but it can't be deleted.
+    is_default: bool
     created_at: datetime

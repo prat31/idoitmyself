@@ -2,9 +2,9 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.models.scan import ScanKind, ScanStatus
+from app.models.scan import SCAN_INTERVALS, ScanKind, ScanStatus
 
 
 class ScanFilterRef(BaseModel):
@@ -64,7 +64,21 @@ class AdhocScanCreate(BaseModel):
 
 
 class ScanSchedule(BaseModel):
-    """When scheduled scans run: every `interval_minutes` from the hour; the next tick is `next_run_at`."""
+    """When scheduled scans run: every `interval_minutes` from midnight in `timezone`; the next one is at
+    `next_run_at`. `intervals` are the choices."""
 
     interval_minutes: int
+    intervals: list[int]
+    timezone: str
     next_run_at: datetime
+
+
+class ScanScheduleUpdate(BaseModel):
+    interval_minutes: int
+
+    @field_validator("interval_minutes")
+    @classmethod
+    def allowed(cls, value: int) -> int:
+        if value not in SCAN_INTERVALS:
+            raise ValueError(f"must be one of {', '.join(map(str, SCAN_INTERVALS))}")
+        return value

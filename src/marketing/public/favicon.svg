@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">IDIM — folded graphite monogram</title>
+  <desc id="desc">An abstract, interwoven graphite ribbon monogram that subtly conceals the letters I, D, I, and M.</desc>
+  <defs>
+    <linearGradient id="graphite" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#71717A"/>
+      <stop offset=".38" stop-color="#27272A"/>
+      <stop offset="1" stop-color="#09090B"/>
+    </linearGradient>
+    <linearGradient id="dark" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#09090B"/>
+      <stop offset=".55" stop-color="#27272A"/>
+      <stop offset="1" stop-color="#18181B"/>
+    </linearGradient>
+    <linearGradient id="silver" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FAFAFA"/>
+      <stop offset=".24" stop-color="#A1A1AA"/>
+      <stop offset=".7" stop-color="#52525B"/>
+      <stop offset="1" stop-color="#18181B"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="0" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#71717A"/>
+      <stop offset=".5" stop-color="#3F3F46"/>
+      <stop offset="1" stop-color="#09090B"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="5"/>
+      <feOffset dy="7"/>
+      <feComponentTransfer><feFuncA type="linear" slope=".16"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Transparent canvas: intended to work on light or dark surfaces. -->
+  <g filter="url(#shadow)" stroke-linejoin="round" stroke-linecap="round">
+    <!-- Left folded stem: an abstract I, with a concealed inner return. -->
+    <path d="M190 108 L238 132 Q252 139 252 158 L252 366 Q252 384 235 384 L199 384 Q181 384 181 365 L181 119 Q181 104 190 108Z" fill="url(#dark)"/>
+    <path d="M183 251 L252 304 L252 366 Q252 384 235 384 L199 384 Q181 384 181 365 L181 268Z" fill="#09090B" opacity=".72"/>
+    <path d="M190 108 L238 132 Q252 139 252 158 L252 221 L181 281 L181 119 Q181 104 190 108Z" fill="url(#graphite)"/>
+
+    <!-- D: broad looping ribbon; the negative space is deliberately off-centre. -->
+    <path d="M303 122
+             Q303 113 315 113 L418 113
+             Q522 113 566 190
+             Q603 255 565 321
+             Q526 384 418 384 L303 384
+             L303 347 L420 347
+             Q491 347 522 302
+             Q548 264 522 224
+             Q492 151 416 151 L303 151Z"
+          fill="url(#silver)"/>
+    <path d="M303 122 Q303 113 315 113 L418 113 Q470 113 508 139 L465 174 Q445 158 416 158 L303 158Z"
+          fill="#71717A" opacity=".85"/>
+    <path d="M303 151 L380 205 L380 294 L303 347Z" fill="url(#dark)"/>
+    <path d="M380 205 L430 240 Q447 253 430 269 L380 294Z" fill="#09090B"/>
+    <path d="M303 347 L380 294 L430 269 Q447 253 430 240 L380 205 L303 151Z"
+          fill="url(#fold)" opacity=".98"/>
+
+    <!-- Second I: the vertical is split by a subtle ribbon crossing. -->
+    <path d="M606 108 L654 132 Q668 139 668 158 L668 366 Q668 384 651 384 L615 384 Q597 384 597 365 L597 119 Q597 104 606 108Z"
+          fill="url(#dark)"/>
+    <path d="M597 235 L668 292 L668 366 Q668 384 651 384 L615 384 Q597 384 597 365Z"
+          fill="#09090B" opacity=".78"/>
+    <path d="M606 108 L654 132 Q668 139 668 158 L668 220 L597 278 L597 119 Q597 104 606 108Z"
+          fill="url(#graphite)"/>
+
+    <!-- M: one diagonal passes over the other, creating the hidden letterform. -->
+    <path d="M704 374 L704 185
+             Q704 166 720 157
+             Q738 147 754 164
+             L822 235 L892 166
+             Q907 151 924 160
+             Q940 168 940 187 L940 374
+             L899 374 L899 231 L843 286
+             Q822 307 801 286 L745 231 L745 374Z"
+          fill="url(#dark)"/>
+    <path d="M704 185 Q704 166 720 157 Q738 147 754 164 L822 235 L892 166 Q907 151 924 160 Q940 168 940 187 L940 208 L862 285 Q842 305 822 285 L704 169Z"
+          fill="url(#silver)"/>
+    <path d="M745 231 L801 286 Q822 307 843 286 L899 231 L899 374 L867 374 L867 306 L842 330 Q822 349 802 330 L777 306 L777 374 L745 374Z"
+          fill="url(#fold)"/>
+    <path d="M899 231 L940 190 L940 356 Q940 374 923 374 L899 374Z" fill="#09090B" opacity=".8"/>
+  </g>
+</svg>

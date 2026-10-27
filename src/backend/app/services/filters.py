@@ -23,6 +23,7 @@ from app.schemas.filter import (
     OperatorRead,
     ScopeInbox,
 )
+from app.services import jev
 
 
 class FilterInputError(ValueError):
@@ -51,6 +52,7 @@ def field_catalogue() -> FieldCatalogue:
             ]
             for field_type, operators in OPERATORS.items()
         },
+        ai_enabled=jev.is_configured(),
     )
 
 
@@ -85,6 +87,7 @@ def _to_read(f: Filter, emails: int | None, last: datetime | None) -> FilterRead
         status_changed_at=f.status_changed_at,
         emails_labelled=emails or 0,
         last_matched_at=last,
+        is_default=f.default_key is not None,
         created_at=f.created_at,
         updated_at=f.updated_at,
     )
@@ -189,14 +192,29 @@ async def update_filter(session: AsyncSession, filter_id: uuid.UUID, data: Filte
     return await get_filter(session, filter_id)
 
 
+class DefaultFilterError(Exception):
+    """Built-in default filters can't be deleted (only deactivated)."""
+
+
 async def delete_filter(session: AsyncSession, filter_id: uuid.UUID) -> bool:
-    """Delete a filter. Labels it applied stay on their emails."""
+    """Delete a filter. Labels it applied stay on their emails. Built-in defaults can't be deleted."""
     f = await session.get(Filter, filter_id)
     if f is None:
         return False
+    if f.default_key is not None:
+        raise DefaultFilterError(f.name)
     await session.delete(f)
     await session.commit()
     return True
+
+
+def has_ai_conditions(f: Filter) -> bool:
+    """Whether the filter's rule asks Jev anything. Without OPENROUTER_API_KEY, scans skip such
+    filters (they can still be saved)."""
+    try:
+        return next(Rule.model_validate(f.rule).ai_conditions(), None) is not None
+    except ValueError:
+        return False
 
 
 async def active_filters(session: AsyncSession) -> list[Filter]:

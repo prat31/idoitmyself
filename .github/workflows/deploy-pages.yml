@@ -1,0 +1,53 @@
+name: Deploy static site to GitHub Pages
+
+on:
+  push:
+    branches: [main, feature]
+    paths:
+      - 'src/marketing/**'
+      - 'src/frontend/**'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            src/frontend/package-lock.json
+            src/marketing/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: src/frontend
+      - name: Install marketing dependencies
+        run: npm ci
+        working-directory: src/marketing
+      - name: Build static site & demo
+        run: npm run build
+        working-directory: src/marketing
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: src/marketing/dist
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

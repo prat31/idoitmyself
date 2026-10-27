@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import get_session
-from app.schemas.scan import AdhocScanCreate, ScanPage, ScanRead, ScanSchedule
+from app.models.scan import SCAN_INTERVALS
+from app.schemas.scan import AdhocScanCreate, ScanPage, ScanRead, ScanSchedule, ScanScheduleUpdate
 from app.services import scans as scan_service
 from app.services.scans import AdhocScanError, ScanNotActiveError
 
@@ -30,13 +31,28 @@ async def list_scans(
     )
 
 
-@router.get("/schedule", response_model=ScanSchedule)
-async def schedule():
-    """The scheduled-scan interval and when the next tick fires."""
+async def _schedule(session: AsyncSession) -> ScanSchedule:
+    interval = await scan_service.scan_interval(session)
     return ScanSchedule(
-        interval_minutes=get_settings().scan_interval_minutes,
-        next_run_at=scan_service.next_run_at(datetime.now(UTC)),
+        interval_minutes=interval,
+        intervals=list(SCAN_INTERVALS),
+        timezone=get_settings().scan_timezone,
+        next_run_at=scan_service.next_run_at(datetime.now(UTC), interval),
     )
+
+
+@router.get("/schedule", response_model=ScanSchedule)
+async def schedule(session: SessionDep):
+    """How often scheduled scans run, and when the next ones start."""
+    return await _schedule(session)
+
+
+@router.put("/schedule", response_model=ScanSchedule)
+async def update_schedule(data: ScanScheduleUpdate, session: SessionDep):
+    """Change how often scheduled scans run (422 for an interval not offered). Applies from the next
+    tick; windows still join up, so nothing is missed or read twice."""
+    await scan_service.set_scan_interval(session, data.interval_minutes)
+    return await _schedule(session)
 
 
 @router.post("/adhoc", response_model=list[ScanRead], status_code=status.HTTP_201_CREATED)

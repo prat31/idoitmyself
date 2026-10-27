@@ -33,6 +33,7 @@ TOKEN_REFRESH_MARGIN = timedelta(minutes=2)
 UNITS_LIST = 5
 UNITS_GET_FULL = 60
 UNITS_LABELS = 1
+UNITS_ATTACHMENT = 20
 
 # Gmail's inbox tabs, as label ids.
 CATEGORY_LABELS = {
@@ -163,6 +164,13 @@ class GmailSource:
         message = await self._get(f"/messages/{message_id}", {"format": "full"}, units=UNITS_GET_FULL)
         return parse_message(message, await self._labels())
 
+    async def fetch_attachment(self, message_id: str, ref: str) -> bytes:
+        body = await self._get(
+            f"/messages/{message_id}/attachments/{quote(ref, safe='')}", {}, units=UNITS_ATTACHMENT
+        )
+        data = body.get("data", "")
+        return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
+
     async def _labels(self) -> dict[str, str]:
         async with self._labels_lock:
             if self._label_names is None:
@@ -249,6 +257,21 @@ def extract_body_text(payload: dict[str, Any]) -> str:
     return html_to_text("\n".join(markup))
 
 
+def extract_body_html(payload: dict[str, Any]) -> str | None:
+    """The HTML body of a Gmail message payload, if it has one."""
+    found: list[str] = []
+
+    def walk(part: dict[str, Any]) -> None:
+        data = part.get("body", {}).get("data")
+        if not part.get("filename") and data and part.get("mimeType") == "text/html":
+            found.append(_decode(data))
+        for child in part.get("parts", []) or []:
+            walk(child)
+
+    walk(payload)
+    return "\n".join(found) or None
+
+
 def extract_attachments(payload: dict[str, Any]) -> tuple[Attachment, ...]:
     """Named file parts of a Gmail payload, skipping inline images (logos, signatures)."""
     found: list[Attachment] = []
@@ -259,7 +282,12 @@ def extract_attachments(payload: dict[str, Any]) -> tuple[Attachment, ...]:
         if filename:
             disposition = _header_map(part).get("content-disposition", "").lower()
             if not (mime.startswith("image/") and disposition.startswith("inline")):
-                found.append(Attachment(filename=filename, mime_type=mime))
+                body = part.get("body", {})
+                found.append(
+                    Attachment(
+                        filename=filename, mime_type=mime, ref=body.get("attachmentId"), size=body.get("size")
+                    )
+                )
         for child in part.get("parts", []) or []:
             walk(child)
 
@@ -298,6 +326,7 @@ def parse_message(message: dict[str, Any], label_names: dict[str, str] | None = 
         subject=headers.get("subject"),
         snippet=html_to_text(message["snippet"]) if message.get("snippet") else None,
         body_text=extract_body_text(payload),
+        body_html=extract_body_html(payload),
         attachments=extract_attachments(payload),
         headers=headers,
         size_bytes=message.get("sizeEstimate"),

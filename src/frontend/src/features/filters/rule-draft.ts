@@ -20,6 +20,13 @@ export type GroupDraft = { key: string; type: 'group'; join: Join; items: Condit
 
 export type RuleDraft = { items: (ConditionDraft | GroupDraft)[] }
 
+/** The catalogue field of natural-language conditions, decided by Jev. Mirrors the server's limits. */
+export const AI_FIELD = 'ai'
+export const MAX_AI_PROMPT_LENGTH = 1000
+export const MAX_AI_CONDITIONS = 5
+
+export const isAiCondition = (c: ConditionDraft) => c.field === AI_FIELD
+
 let nextKey = 0
 const newKey = () => `k${++nextKey}`
 
@@ -54,6 +61,27 @@ export function withField(draft: ConditionDraft, catalogue: FieldCatalogue, fiel
     values: [],
     argument: '',
   }
+}
+
+export function newAiCondition(join: Join = 'and'): ConditionDraft {
+  return {
+    key: newKey(),
+    type: 'condition',
+    join,
+    field: AI_FIELD,
+    op: 'matches',
+    value: '',
+    values: [],
+    argument: '',
+    caseSensitive: false,
+  }
+}
+
+export function countAiConditions(draft: RuleDraft): number {
+  return draft.items.reduce(
+    (n, item) => n + (item.type === 'condition' ? +isAiCondition(item) : item.items.filter(isAiCondition).length),
+    0,
+  )
 }
 
 export function newGroup(catalogue: FieldCatalogue, mailboxTypes: MailboxType[], join: Join = 'and'): GroupDraft {
@@ -94,7 +122,16 @@ export type DraftErrors = Record<string, string>
 export function validateDraft(draft: RuleDraft, catalogue: FieldCatalogue, mailboxTypes: MailboxType[]): DraftErrors {
   const errors: DraftErrors = {}
   const available = new Set(fieldsFor(catalogue, mailboxTypes).map((f) => f.key))
+  let aiSeen = 0
   const check = (c: ConditionDraft) => {
+    if (isAiCondition(c)) {
+      aiSeen += 1
+      if (!c.value.trim()) errors[c.key] = 'Describe the emails this should match'
+      else if (c.value.length > MAX_AI_PROMPT_LENGTH)
+        errors[c.key] = `Keep the description under ${MAX_AI_PROMPT_LENGTH} characters`
+      else if (aiSeen > MAX_AI_CONDITIONS) errors[c.key] = `A rule can have at most ${MAX_AI_CONDITIONS} AI conditions`
+      return
+    }
     const field = catalogue.fields.find((f) => f.key === c.field)
     const op = operatorsFor(catalogue, field).find((o) => o.key === c.op)
     if (!field || !op) errors[c.key] = 'Choose a field and an operator'
@@ -124,6 +161,7 @@ function conditionFromDraft(c: ConditionDraft, catalogue: FieldCatalogue, first:
   if (op.takes_value) {
     if (field.type === 'number') condition.value = Number(c.value)
     else if (field.type === 'enum' && c.op === 'in') condition.value = c.values
+    else if (field.type === 'ai') condition.value = c.value.trim()
     else condition.value = c.value
   }
   if ((field.type === 'text' || field.type === 'text_list') && c.caseSensitive) condition.case_sensitive = true

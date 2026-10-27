@@ -47,6 +47,8 @@ export type Filter = {
   /** Emails this filter labelled. */
   emails_labelled: number
   last_matched_at: string | null
+  /** A built-in default: editable and can be deactivated, but not deleted. */
+  is_default: boolean
   created_at: string
   updated_at: string
 }
@@ -60,7 +62,8 @@ export type FilterInput = {
   status: FilterStatus
 }
 
-export type FieldType = 'text' | 'text_list' | 'bool' | 'number' | 'enum'
+/** `ai`: a natural-language description that Jev decides, rather than a value read from the email. */
+export type FieldType = 'text' | 'text_list' | 'bool' | 'number' | 'enum' | 'ai'
 
 export type FieldSpec = {
   key: string
@@ -79,6 +82,8 @@ export type FieldCatalogue = {
   mailbox_types: MailboxType[]
   fields: FieldSpec[]
   operators: Record<FieldType, OperatorSpec[]>
+  /** AI conditions can be saved (the server has an OpenRouter key). */
+  ai_enabled: boolean
 }
 
 export const filterKeys = {

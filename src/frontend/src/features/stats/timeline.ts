@@ -3,7 +3,7 @@ import type { Granularity, TimelineBucket } from './api'
 
 // Bucket starts are calendar dates ("YYYY-MM-DD") already in the viewer's timezone: parse as local dates.
 function parseDay(value: string): Date {
-  const [y, m, d] = value.split('-').map(Number)
+  const [y, m, d] = value.split('T')[0].split('-').map(Number)
   return new Date(y, m - 1, d)
 }
 

@@ -4,9 +4,11 @@ import { Menu } from 'lucide-react'
 import { Logo } from '@/components/brand/logo'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import { NotificationsBell } from '@/features/notifications/notifications-bell'
 import { SidebarContent } from './app-sidebar'
 
-/** Phone-only (below md) header: logo plus a menu button that opens the sidebar as a drawer. */
+/** Phone-only (below md) header: a menu button that opens the sidebar as a drawer, the logo, and the
+ *  notifications bell. */
 export function MobileTopBar() {
   const [open, setOpen] = useState(false)
 
@@ -20,10 +22,13 @@ export function MobileTopBar() {
         </SheetTrigger>
         <SheetContent>
           <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <SidebarContent onNavigate={() => setOpen(false)} />
+          <SidebarContent onNavigate={() => setOpen(false)} bell={false} />
         </SheetContent>
       </Sheet>
       <Logo showTagline={false} className="[&_img]:h-6" />
+      <div className="ml-auto pr-1">
+        <NotificationsBell align="end" />
+      </div>
     </header>
   )
 }

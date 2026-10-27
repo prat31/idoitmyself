@@ -2,6 +2,7 @@ import type { Condition, FieldCatalogue, Rule } from './api'
 
 function describeCondition(c: Condition, catalogue: FieldCatalogue | undefined): string {
   const field = catalogue?.fields.find((f) => f.key === c.field)
+  if (c.field === 'ai') return `✦ AI${c.op === 'not_matches' ? ' does not match' : ''} “${String(c.value)}”`
   const op = field && catalogue?.operators[field.type].find((o) => o.key === c.op)
   const fieldLabel = field ? (c.argument ? `${field.label} ${c.argument}` : field.label) : c.field
   const optionLabel = (v: string) => field?.options.find((o) => o.value === v)?.label ?? v
@@ -16,7 +17,7 @@ function joined<T extends { join?: 'and' | 'or' }>(items: T[], describe: (item: 
   return items.map((item, i) => (i === 0 ? '' : item.join === 'or' ? ' OR ' : ' AND ') + describe(item)).join('')
 }
 
-/** One-line reading of a rule, e.g. Sender domain is “hdfcbank.net” AND (Subject contains “bill” OR …). */
+/** One-line reading of a rule, e.g. Sender domain is “acmebank.example” AND (Subject contains “bill” OR …). */
 export function summarizeRule(rule: Rule, catalogue: FieldCatalogue | undefined): string {
   return joined(rule.items, (item) =>
     item.type === 'condition'

@@ -5,6 +5,7 @@ import { BarList } from '@/components/charts/bar-list'
 import { ChartCard, ChartTable } from '@/components/charts/chart-card'
 import { ColumnChart } from '@/components/charts/column-chart'
 import { StatTile } from '@/components/charts/stat-tile'
+import { DefaultBadge } from '@/components/layout/default-badge'
 import { ErrorBanner } from '@/components/layout/error-banner'
 import { PageBody } from '@/components/layout/page-body'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -62,9 +63,12 @@ export function LabelDetailPage() {
               <LabelDot color={label.data.color} className="size-3.5" />
             </span>
             <div className="min-w-0 flex-1 space-y-1">
-              <h1 className="truncate font-serif text-2xl font-semibold tracking-tight md:text-3xl">
-                {label.data.display_name}
-              </h1>
+              <div className="flex min-w-0 items-center gap-3">
+                <h1 className="truncate font-serif text-2xl font-semibold tracking-tight md:text-3xl">
+                  {label.data.display_name}
+                </h1>
+                {label.data.is_default && <DefaultBadge />}
+              </div>
               <p className="text-sm text-muted-foreground">
                 Normalised name <NormalizedName name={label.data.name} />
               </p>
@@ -91,7 +95,7 @@ export function LabelDetailPage() {
             </div>
             <div className="flex shrink-0 items-center">
               <EditLabelDialog label={label.data} />
-              <DeleteLabelDialog label={label.data} onDeleted={() => navigate('/automation/labels')} />
+              {!label.data.is_default && <DeleteLabelDialog label={label.data} onDeleted={() => navigate('/automation/labels')} />}
             </div>
           </div>
         )}

@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { FieldError, FormError, Optional } from '@/components/form/field'
+import { DefaultBadge } from '@/components/layout/default-badge'
 import { ErrorBanner } from '@/components/layout/error-banner'
 import { PageBody } from '@/components/layout/page-body'
 import { Button } from '@/components/ui/button'
@@ -62,9 +63,12 @@ export function FilterEditorPage() {
       <header className="space-y-4 border-b px-4 pb-5 pt-6 md:px-10 md:pb-6 md:pt-8">
         {backLink}
         <div className="space-y-1.5">
-          <h1 className="font-serif text-2xl font-semibold tracking-tight md:text-3xl">
-            {filterId ? (filter.data?.name ?? 'Filter') : 'New filter'}
-          </h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="font-serif text-2xl font-semibold tracking-tight md:text-3xl">
+              {filterId ? (filter.data?.name ?? 'Filter') : 'New filter'}
+            </h1>
+            {filter.data?.is_default && <DefaultBadge />}
+          </div>
           <p className="text-sm text-muted-foreground">
             A filter applies to emails scanned while it's active. Editing it never removes labels it already added.
           </p>
@@ -181,7 +185,7 @@ function FilterForm({
             <FieldLabel htmlFor="filter-name">Name</FieldLabel>
             <Input
               id="filter-name"
-              placeholder="e.g. HDFC card statements"
+              placeholder="e.g. Acme card statements"
               autoComplete="off"
               value={name}
               aria-invalid={!!shown.name}
@@ -278,7 +282,7 @@ function FilterForm({
             <div className="space-y-0.5">
               <FieldLabel htmlFor="filter-active">Active</FieldLabel>
               <p className="text-xs text-muted-foreground">
-                Active filters run on email scanned from now on (every 30 minutes). Emails scanned earlier aren't
+                Active filters run on email scanned from now on (on the schedule set in Scans). Emails scanned earlier aren't
                 re-checked.
               </p>
             </div>
@@ -289,7 +293,7 @@ function FilterForm({
       {mutationError && <FormError message={`Couldn't save the filter: ${mutationError.message}`} />}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
-        {filter && <DeleteFilterDialog filter={filter} onDeleted={() => navigate('/automation/filters')} />}
+        {filter && !filter.is_default && <DeleteFilterDialog filter={filter} onDeleted={() => navigate('/automation/filters')} />}
         <div className="flex flex-col-reverse gap-2 sm:ml-auto sm:flex-row">
           <Button type="button" variant="outline" asChild>
             <Link to="/automation/filters">Cancel</Link>

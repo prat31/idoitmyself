@@ -99,6 +99,8 @@ class FilterRead(BaseModel):
     # Emails this filter labelled (it can share a label with other filters).
     emails_labelled: int
     last_matched_at: datetime | None
+    # A built-in default: editable and can be deactivated, but not deleted.
+    is_default: bool
     created_at: datetime
     updated_at: datetime
 
@@ -128,3 +130,6 @@ class FieldCatalogue(BaseModel):
     mailbox_types: list[InboxProvider]
     fields: list[FieldRead]
     operators: dict[str, list[OperatorRead]]  # by field type
+    # OPENROUTER_API_KEY is set. AI conditions can be saved either way; without it, scans skip filters
+    # that have them.
+    ai_enabled: bool
