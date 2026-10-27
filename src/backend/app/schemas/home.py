@@ -14,7 +14,7 @@ class LabelMonth(BaseModel):
     last_month: int
 
 
-class DashboardSummary(BaseModel):
+class HomeSummary(BaseModel):
     """Scan figures for the filtered range (by scan finish time), filter counts, and month-on-month
     labels."""
 
@@ -56,12 +56,31 @@ class AttentionInbox(BaseModel):
     scan_id: uuid.UUID | None
 
 
-class DashboardAttention(BaseModel):
+class AttentionInput(BaseModel):
+    """Processor runs waiting for something only the user can give (e.g. a PDF password)."""
+
+    name: str  # what to save it as (with scope)
+    scope: str
+    prompt: str  # what to ask
+    secret: bool  # a password or the like: typed hidden
+    waiting_runs: int
+    # A saved value didn't work (otherwise none is saved yet).
+    wrong: bool
+    # The latest waiting email, to open and check.
+    email_subject: str | None
+    email_sent_at: datetime
+    open_url: str | None
+
+
+class HomeAttention(BaseModel):
     inboxes_with_errors: list[AttentionInbox]  # the inbox's latest finished scan failed
     scans_with_problems: list[AttentionScan]  # failed, or completed with failed emails (last 30 days)
     filters_never_matched: list[AttentionFilter]  # active, but haven't labelled anything yet
     labels_without_active_filter: list[AttentionLabel]  # nothing adds them any more
     inboxes_without_filters: list[AttentionInbox]  # no active filter covers it, so it isn't scanned
+    inputs_needed: list[AttentionInput]  # per input name and scope
+    # Active, with AI conditions, but OPENROUTER_API_KEY isn't set: scans skip them.
+    filters_skipped_without_ai_key: list[AttentionFilter]
 
 
 class InboxStatus(BaseModel):
@@ -77,7 +96,7 @@ class InboxStatus(BaseModel):
     quota_window_seconds: int
 
 
-class DashboardStatus(BaseModel):
+class HomeStatus(BaseModel):
     scan_interval_minutes: int
     inboxes: list[InboxStatus]
 
@@ -97,5 +116,5 @@ class RecentMatch(BaseModel):
     open_url: str | None
 
 
-class DashboardRecent(BaseModel):
+class HomeRecent(BaseModel):
     matches: list[RecentMatch]

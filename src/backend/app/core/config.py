@@ -1,4 +1,5 @@
 from functools import lru_cache
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -35,10 +36,19 @@ class Settings(BaseSettings):
     rabbitmq_host: str = "localhost"
     rabbitmq_port: int = 5672
 
-    # Scanning. Celery beat fires on fixed clock boundaries every SCAN_INTERVAL_MINUTES (30: at :00 and
-    # :30) and scans every inbox an active filter covers, from where its last scheduled scan stopped (or
-    # one interval back, the first time) up to the boundary. Must divide 60.
-    scan_interval_minutes: int = Field(default=30, gt=0, le=60)
+    # Jev (TypeSafe's System One model) via OpenRouter's Decisions API, for AI conditions in filters.
+    # Without a key, AI conditions can't be saved.
+    openrouter_api_key: SecretStr | None = None
+    jev_model: str = "typesafe/jev-1.13"
+    jev_decisions_url: str = "https://openrouter.ai/api/alpha/decisions"
+    jev_body_max_chars: int = 8000  # plain-text body sent to Jev, truncated
+    # An AI condition holds when Jev's P(yes) is at least this.
+    jev_threshold: float = Field(default=0.5, gt=0, lt=1)
+
+    # Scanning. How often scheduled scans run is stored in the database (scan_settings, set from the
+    # Scans page). Their boundaries fall every interval from midnight in this timezone: with 3 hours,
+    # 00:00, 03:00, 06:00, ... local time.
+    scan_timezone: str = "Asia/Kolkata"
     # A queued/running scan with no progress for this long is marked failed, so the inbox isn't
     # blocked forever (e.g. a batch message was lost when the worker was killed).
     scan_stale_minutes: int = 30
@@ -62,11 +72,22 @@ class Settings(BaseSettings):
     # deferred batches don't all return at the same instant.
     scan_pacing_spread_seconds: float = 30
 
-    @field_validator("scan_interval_minutes")
+    # Processors. Their runs retry and pace like scans (SCAN_MAX_ATTEMPTS and the back-off above). A run
+    # queued or running with no progress for this long lost its message and is re-published.
+    processor_stale_minutes: int = 10
+
+    # Telegram: notifications are also sent to this chat when both are set (otherwise in-app only).
+    telegram_bot_token: SecretStr | None = None
+    telegram_chat_id: str | None = None
+    telegram_api_url: str = "https://api.telegram.org"
+
+    @field_validator("scan_timezone")
     @classmethod
-    def divides_an_hour(cls, value: int) -> int:
-        if 60 % value:
-            raise ValueError("must divide 60 (e.g. 5, 10, 15, 20, 30, 60)")
+    def known_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError(f"unknown timezone {value!r} (use an IANA name, e.g. Asia/Kolkata)") from None
         return value
 
     @property

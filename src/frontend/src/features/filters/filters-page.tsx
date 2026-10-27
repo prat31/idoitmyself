@@ -64,7 +64,7 @@ export function FiltersPage() {
           <EmptyState
             icon={ListFilter}
             title="No filters yet"
-            description="Create a filter to label new email automatically. Inboxes are scanned every 30 minutes once a filter is active."
+            description="Create a filter to label new email automatically. Inboxes are scanned on a schedule once a filter is active."
             action={newButton}
           />
         )}

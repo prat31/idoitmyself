@@ -1,11 +1,18 @@
-"""Celery app and scan tasks.
-Worker: celery -A app.worker worker -Q scans --loglevel=INFO
-Beat:   celery -A app.worker beat --loglevel=INFO   (fires scans.tick at :00/:30 with a 30-minute interval)
+"""Celery app, scan tasks and processor tasks.
+Scan worker:      celery -A app.worker worker -Q scans --loglevel=INFO
+Processor worker: celery -A app.worker worker -Q processors --loglevel=INFO
+Beat:             celery -A app.worker beat --loglevel=INFO   (scans.tick every 15 minutes)
 
 Three kinds of task on the `scans` queue:
 - scans.tick: queue a scheduled scan for every inbox an active filter covers (fixed time windows).
 - scans.discover(scan_id): list the scan's new emails, then publish them as scans.process batches.
-- scans.process(scan_id, message_ids, attempt): fetch, filter and label one batch.
+- scans.process(scan_id, message_ids, attempt): fetch, filter and label one batch, then publish the
+  processor runs queued for the labels it added.
+And on the `processors` queue:
+- processors.run(run_id): run one processor on one email, then publish the actions it made due now.
+- processors.sweep (beat, every 5 minutes): re-publish runs whose message was lost.
+- processors.deliver_action(action_id, attempt): deliver one action (e.g. a notification), once.
+- processors.actions_tick (beat, every minute): publish the actions whose time has come.
 Transient failures (rate limits, 5xx, network) are never waited on in the worker: the work is
 published back to the broker with a `countdown` (exponential back-off with jitter, honouring
 Retry-After), and the pool process moves on.
@@ -34,6 +41,11 @@ SCAN_QUEUE = "scans"
 TICK_TASK = "scans.tick"
 DISCOVER_TASK = "scans.discover"
 PROCESS_BATCH_TASK = "scans.process"
+PROCESSOR_QUEUE = "processors"
+PROCESSOR_RUN_TASK = "processors.run"
+PROCESSOR_SWEEP_TASK = "processors.sweep"
+DELIVER_ACTION_TASK = "processors.deliver_action"
+ACTIONS_TICK_TASK = "processors.actions_tick"
 SETTLE_SECONDS = 60
 
 celery_app = Celery("idim", broker=get_settings().celery_broker_url)
@@ -45,12 +57,17 @@ celery_app.conf.update(
     # RabbitMQ 4 rejects the transient non-exclusive queues Celery uses for remote control (pidbox);
     # we don't use remote control, gossip or mingle. Our task queue itself is durable.
     worker_enable_remote_control=False,
+    task_routes={"processors.*": {"queue": PROCESSOR_QUEUE}},
     beat_schedule={
         "scan-inboxes": {
             "task": TICK_TASK,
-            # Fixed clock boundaries (UTC), e.g. :00 and :30, not "every 30 minutes since beat started".
-            "schedule": crontab(minute=f"*/{get_settings().scan_interval_minutes}"),
-        }
+            # Every quarter hour on the clock, so each boundary of the stored interval (from midnight in
+            # SCAN_TIMEZONE, which may be offset by :30 or :45 from UTC) gets a tick right on time. Ticks
+            # between boundaries do nothing (see start_due_scans).
+            "schedule": crontab(minute="*/15"),
+        },
+        "sweep-processor-runs": {"task": PROCESSOR_SWEEP_TASK, "schedule": crontab(minute="*/5")},
+        "deliver-due-actions": {"task": ACTIONS_TICK_TASK, "schedule": crontab(minute="*")},
     },
 )
 
@@ -146,6 +163,7 @@ def process_batch_task(scan_id: str, message_ids: list[str], attempt: int = 0) -
             client=client,
         )
     )
+    publish_processor_runs(outcome.processor_runs)
     if outcome.paced:
         process_batch_task.apply_async(
             args=[scan_id, outcome.paced, attempt], countdown=_pacing_delay(outcome.paced_after)
@@ -160,3 +178,67 @@ def process_batch_task(scan_id: str, message_ids: list[str], attempt: int = 0) -
             attempt + 2,
         )
         process_batch_task.apply_async(args=[scan_id, outcome.deferred, attempt + 1], countdown=countdown)
+
+
+def publish_processor_runs(run_ids: list[uuid.UUID]) -> None:
+    for run_id in run_ids:
+        celery_app.send_task(PROCESSOR_RUN_TASK, args=[str(run_id)])
+
+
+def publish_actions(action_ids: list[uuid.UUID]) -> None:
+    for action_id in action_ids:
+        celery_app.send_task(DELIVER_ACTION_TASK, args=[str(action_id)])
+
+
+# Processor runs and actions are idempotent, so their messages are acked only once handled: a worker
+# killed mid-task leaves them to be delivered again (at least once).
+@celery_app.task(name=PROCESSOR_RUN_TASK, acks_late=True, reject_on_worker_lost=True)
+def processor_run_task(run_id: str) -> None:
+    from app.services.processor_engine import run_processor
+
+    settings = get_settings()
+    outcome = _run_async(
+        lambda sf, client: run_processor(
+            uuid.UUID(run_id), max_attempts=settings.scan_max_attempts, session_factory=sf, client=client
+        )
+    )
+    publish_actions(outcome.due_actions)
+    if outcome.retry is None:
+        return
+    retry = outcome.retry
+    countdown = _pacing_delay(retry.retry_after) if retry.paced else _delay(retry.attempt, retry.retry_after)
+    processor_run_task.apply_async(args=[run_id], countdown=countdown)
+
+
+@celery_app.task(name=PROCESSOR_SWEEP_TASK)
+def processor_sweep_task() -> None:
+    from app.services.processor_engine import stale_runs
+
+    publish_processor_runs(_run_async(lambda sf, _client: stale_runs(sf)))
+
+
+@celery_app.task(name=DELIVER_ACTION_TASK, acks_late=True, reject_on_worker_lost=True)
+def deliver_action_task(action_id: str, attempt: int = 0) -> None:
+    from app.services.actions import deliver
+
+    settings = get_settings()
+    try:
+        _run_async(
+            lambda sf, client: deliver(
+                uuid.UUID(action_id),
+                final_attempt=attempt + 1 >= settings.scan_max_attempts,
+                session_factory=sf,
+                client=client,
+            )
+        )
+    except TransientError as exc:
+        countdown = _delay(attempt, exc.retry_after)
+        logger.warning("Action %s deferred %.0fs (attempt %s): %s", action_id, countdown, attempt + 1, exc)
+        deliver_action_task.apply_async(args=[action_id, attempt + 1], countdown=countdown)
+
+
+@celery_app.task(name=ACTIONS_TICK_TASK)
+def actions_tick_task() -> None:
+    from app.services.actions import due_actions
+
+    publish_actions(_run_async(lambda sf, _client: due_actions(sf)))

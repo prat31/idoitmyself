@@ -2,12 +2,13 @@ import { Link } from 'react-router'
 
 import { providerById } from '@/features/inboxes/providers'
 import { scanKindLabel } from '@/features/scans/api'
+import { intervalTitle } from '@/features/scans/interval'
 import { ScanStatusBadge } from '@/features/scans/scan-status-badge'
 import { formatNumber, formatRelative, formatTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { DashboardStatus } from './api'
+import type { HomeStatus } from './api'
 
-type InboxStatus = DashboardStatus['inboxes'][number]
+type InboxStatus = HomeStatus['inboxes'][number]
 
 function ScanProgress({ scan }: { scan: NonNullable<InboxStatus['active_scan']> }) {
   const done = scan.emails_processed + scan.emails_failed
@@ -27,14 +28,14 @@ function ScanProgress({ scan }: { scan: NonNullable<InboxStatus['active_scan']> 
 }
 
 /** Scans in progress, and per inbox: how far it is scanned, last completed scan, quota used right now. */
-export function LiveStatus({ status }: { status: DashboardStatus }) {
+export function LiveStatus({ status }: { status: HomeStatus }) {
   const active = status.inboxes.filter((i) => i.active_scan)
   return (
     <div className="grid items-start gap-4 lg:grid-cols-2">
       <div className="min-w-0 rounded-xl border bg-card p-4 shadow-xs sm:p-5">
         <div className="mb-3 flex items-baseline justify-between gap-2">
           <h3 className="text-sm font-medium">Scans in progress</h3>
-          <span className="text-xs text-muted-foreground">Every {status.scan_interval_minutes} minutes</span>
+          <span className="text-xs text-muted-foreground">{intervalTitle(status.scan_interval_minutes)}</span>
         </div>
         {active.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nothing scanning right now.</p>

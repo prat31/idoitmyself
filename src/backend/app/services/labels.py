@@ -7,15 +7,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.email import EmailLabel
 from app.models.filter import Filter
 from app.models.label import Label
-from app.schemas.label import LabelCreate, LabelFilterRef, LabelRead, LabelUpdate
+from app.models.processor import Processor, processor_labels
+from app.schemas.label import LabelCreate, LabelFilterRef, LabelProcessorRef, LabelRead, LabelUpdate
 
 
 class LabelNameTakenError(Exception):
     pass
 
 
+class DefaultLabelError(Exception):
+    """Built-in default labels can't be deleted."""
+
+
 class LabelInUseError(Exception):
-    """A filter still writes this label."""
+    """A filter still writes this label, or a processor runs on it."""
 
 
 def _email_count():
@@ -41,7 +46,26 @@ async def _filters_by_label(
     return result
 
 
-def _to_read(label: Label, email_count: int, filters: list[LabelFilterRef]) -> LabelRead:
+async def _processors_by_label(
+    session: AsyncSession, label_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[LabelProcessorRef]]:
+    result: dict[uuid.UUID, list[LabelProcessorRef]] = {label_id: [] for label_id in label_ids}
+    if not label_ids:
+        return result
+    rows = await session.execute(
+        select(processor_labels.c.label_id, Processor.id, Processor.name, Processor.status)
+        .join(Processor, Processor.id == processor_labels.c.processor_id)
+        .where(processor_labels.c.label_id.in_(label_ids))
+        .order_by(Processor.name)
+    )
+    for label_id, processor_id, name, status in rows:
+        result[label_id].append(LabelProcessorRef(id=processor_id, name=name, status=status.value))
+    return result
+
+
+def _to_read(
+    label: Label, email_count: int, filters: list[LabelFilterRef], processors: list[LabelProcessorRef]
+) -> LabelRead:
     return LabelRead(
         id=label.id,
         name=label.name,
@@ -49,14 +73,18 @@ def _to_read(label: Label, email_count: int, filters: list[LabelFilterRef]) -> L
         color=label.color,  # type: ignore[arg-type]
         email_count=email_count,
         filters=filters,
+        processors=processors,
+        is_default=label.default_key is not None,
         created_at=label.created_at,
     )
 
 
 async def list_labels(session: AsyncSession) -> list[LabelRead]:
     rows = (await session.execute(select(Label, _email_count()).order_by(Label.display_name))).all()
-    filters = await _filters_by_label(session, [label.id for label, _ in rows])
-    return [_to_read(label, count, filters[label.id]) for label, count in rows]
+    ids = [label.id for label, _ in rows]
+    filters = await _filters_by_label(session, ids)
+    processors = await _processors_by_label(session, ids)
+    return [_to_read(label, count, filters[label.id], processors[label.id]) for label, count in rows]
 
 
 async def get_label(session: AsyncSession, label_id: uuid.UUID) -> LabelRead | None:
@@ -64,7 +92,12 @@ async def get_label(session: AsyncSession, label_id: uuid.UUID) -> LabelRead | N
     if row is None:
         return None
     label, count = row
-    return _to_read(label, count, (await _filters_by_label(session, [label.id]))[label.id])
+    return _to_read(
+        label,
+        count,
+        (await _filters_by_label(session, [label.id]))[label.id],
+        (await _processors_by_label(session, [label.id]))[label.id],
+    )
 
 
 async def create_label(session: AsyncSession, data: LabelCreate) -> LabelRead:
@@ -76,7 +109,7 @@ async def create_label(session: AsyncSession, data: LabelCreate) -> LabelRead:
         await session.rollback()
         raise LabelNameTakenError(data.name) from exc
     await session.refresh(label)
-    return _to_read(label, 0, [])
+    return _to_read(label, 0, [], [])
 
 
 async def update_label(session: AsyncSession, label_id: uuid.UUID, data: LabelUpdate) -> LabelRead | None:
@@ -90,11 +123,18 @@ async def update_label(session: AsyncSession, label_id: uuid.UUID, data: LabelUp
 
 
 async def delete_label(session: AsyncSession, label_id: uuid.UUID) -> bool:
-    """Delete a label and remove it from every email. Refused while any filter writes it."""
+    """Delete a label and remove it from every email. Refused while any filter writes it or any
+    processor runs on it."""
     label = await session.get(Label, label_id)
     if label is None:
         return False
+    if label.default_key is not None:
+        raise DefaultLabelError(label.name)
     if await session.scalar(select(func.count()).select_from(Filter).where(Filter.label_id == label_id)):
+        raise LabelInUseError(label.name)
+    if await session.scalar(
+        select(func.count()).select_from(processor_labels).where(processor_labels.c.label_id == label_id)
+    ):
         raise LabelInUseError(label.name)
     await session.delete(label)
     await session.commit()

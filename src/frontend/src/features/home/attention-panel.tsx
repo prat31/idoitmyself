@@ -1,18 +1,55 @@
-import { CircleAlert, Inbox as InboxIcon, ListFilter, Tag } from 'lucide-react'
+import { CircleAlert, ExternalLink, Inbox as InboxIcon, KeyRound, ListFilter, Tag } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
 import { formatNumber, formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { LabelDot } from '@/features/labels/label-dot'
-import type { DashboardAttention } from './api'
+import { InputDialog } from '@/features/processors/input-dialog'
+import type { HomeAttention } from './api'
 
 type Item = { key: string; icon: ReactNode; text: ReactNode; to: string; tone?: 'warning' | 'destructive' }
 
 const Strong = ({ children }: { children: ReactNode }) => <span className="font-medium text-foreground">{children}</span>
 
-/** Actionable items, each linking to where it's fixed. Renders nothing when all is well. */
-export function AttentionPanel({ data }: { data: DashboardAttention }) {
+/** A processor needs something from the user (e.g. a PDF password): asks for it right here, with a
+ *  link to the latest waiting email (new tab) to check which one it is. */
+function InputItem({ item }: { item: HomeAttention['inputs_needed'][number] }) {
+  const emails = item.waiting_runs === 1 ? '1 email waits' : `${formatNumber(item.waiting_runs)} emails wait`
+  return (
+    <li className="flex flex-col gap-3 px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:items-start sm:px-5">
+      <span className="mt-0.5 shrink-0 text-warning">
+        <KeyRound className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1 space-y-1">
+        <p>
+          {item.wrong ? "The saved value didn't work: " : 'Needed: '}
+          <Strong>{item.prompt}</Strong> · {emails}
+        </p>
+        {item.open_url ? (
+          <a
+            href={item.open_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex max-w-full items-center gap-1 text-xs text-foreground underline-offset-2 hover:underline"
+          >
+            <span className="truncate">{item.email_subject || '(no subject)'}</span>
+            <ExternalLink className="size-3 shrink-0" aria-label="Opens in a new tab" />
+          </a>
+        ) : (
+          <p className="truncate text-xs">{item.email_subject || '(no subject)'}</p>
+        )}
+      </div>
+      <div className="shrink-0">
+        <InputDialog name={item.name} scope={item.scope} prompt={item.prompt} secret={item.secret} wrong={item.wrong} />
+      </div>
+    </li>
+  )
+}
+
+/** Actionable items, each linking to where it's fixed (inputs processors need are asked for in place). Renders
+ *  nothing when all is well. */
+export function AttentionPanel({ data }: { data: HomeAttention }) {
   const items: Item[] = [
     ...data.inboxes_with_errors.map((i) => ({
       key: `inbox-${i.inbox_id}`,
@@ -37,6 +74,17 @@ export function AttentionPanel({ data }: { data: DashboardAttention }) {
         </>
       ),
       to: '/automation/scans',
+    })),
+    ...data.filters_skipped_without_ai_key.map((f) => ({
+      key: `no-ai-key-${f.filter_id}`,
+      tone: 'warning' as const,
+      icon: <ListFilter className="size-4" />,
+      text: (
+        <>
+          Filter <Strong>{f.name}</Strong> is skipped by scans: it has AI conditions and OPENROUTER_API_KEY isn't set
+        </>
+      ),
+      to: `/automation/filters/${f.filter_id}`,
     })),
     ...data.inboxes_without_filters.map((i) => ({
       key: `unfiltered-${i.inbox_id}`,
@@ -75,10 +123,13 @@ export function AttentionPanel({ data }: { data: DashboardAttention }) {
     })),
   ]
 
-  if (items.length === 0) return null
+  if (items.length === 0 && data.inputs_needed.length === 0) return null
 
   return (
     <ul className="divide-y overflow-hidden rounded-xl border bg-card shadow-xs">
+      {data.inputs_needed.map((item) => (
+        <InputItem key={`input-${item.name}-${item.scope}`} item={item} />
+      ))}
       {items.map((item) => (
         <li key={item.key}>
           <Link

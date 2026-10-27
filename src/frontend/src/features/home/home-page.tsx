@@ -23,9 +23,9 @@ import { formatDateTime, formatNumber, formatRelative, formatSender, senderAddre
 import { cn } from '@/lib/utils'
 import {
   attentionCount,
-  useDashboardAttention,
-  useDashboardRecent,
-  useDashboardSummary,
+  useHomeAttention,
+  useHomeRecent,
+  useHomeSummary,
   useLiveInterval,
 } from './api'
 import { AttentionPanel } from './attention-panel'
@@ -58,7 +58,7 @@ function writeFilters(state: FilterState): URLSearchParams {
 
 const percent = (part: number, whole: number) => (whole ? `${Math.round((part / whole) * 100)}%` : '—')
 
-export function DashboardPage() {
+export function HomePage() {
   const [params, setParams] = useSearchParams()
   const filters = readFilters(params)
   const { start, end } = useMemo(
@@ -70,11 +70,11 @@ export function DashboardPage() {
   // Every section refreshes on its own: quickly while a scan is working, slowly otherwise.
   const live = useLiveInterval()
   const overview = useOverview({ start, end, inboxId: filters.inboxId, labelIds: filters.labelIds }, live)
-  const summary = useDashboardSummary(start, end, live)
+  const summary = useHomeSummary(start, end, live)
   const scans = useScans(1, 5)
   const activeScans = useActiveScans()
-  const attention = useDashboardAttention(live)
-  const recent = useDashboardRecent(5, live)
+  const attention = useHomeAttention(live)
+  const recent = useHomeRecent(5, live)
   const [explorerOpen, setExplorerOpen] = useState(false)
 
   const isScanning = (activeScans.data?.total ?? 0) > 0
@@ -91,7 +91,7 @@ export function DashboardPage() {
       <PageHeader
         title={
           <span className="inline-flex items-center gap-2.5">
-            <span>Dashboard</span>
+            <span>Home</span>
             {isScanning && (
               <Link
                 to="/automation/scans"

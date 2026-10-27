@@ -2,8 +2,11 @@
 #   web       http://localhost:5173  (Vite dev server, proxies /api to the api service)
 #   api       http://localhost:8000  (FastAPI; docs at /docs)
 #   worker    Celery worker for scans (queue: scans)
+#   processor-worker  Celery worker for processors (queue: processors)
 #   beat      Celery beat: starts a scan of every inbox every SCAN_INTERVAL_MINUTES (30)
 #   rabbitmq  management UI at http://localhost:15672
+#   dbgate    database UI at http://localhost:3000 (profile "development": `docker compose --profile development up --build`)
+# All persistent data lives in ./.data (gitignored): delete that directory for a fresh setup.
 
 services:
   db:
@@ -15,7 +18,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./.data/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -31,7 +34,7 @@ services:
       - "5672:5672"
       - "15672:15672"
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      - ./.data/rabbitmq:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -43,7 +46,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - ./.data/redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -57,7 +60,7 @@ services:
       POSTGRES_HOST: db
       REDIS_URL: redis://redis:6379/0
       RABBITMQ_HOST: rabbitmq
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    command: sh -c "alembic upgrade head && python -m app.defaults && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
     volumes:
@@ -76,6 +79,21 @@ services:
     env_file: .env
     environment: *backend-env
     command: celery -A app.worker worker -Q scans --loglevel=INFO --concurrency=2 --without-gossip --without-mingle
+    volumes:
+      - ./src/backend:/app
+    depends_on:
+      api:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  # Celery worker for processors: runs them on newly labelled emails (reads PDFs). Restart it to pick
+  # up code changes.
+  processor-worker:
+    build: ./src/backend
+    env_file: .env
+    environment: *backend-env
+    command: celery -A app.worker worker -Q processors --loglevel=INFO --concurrency=2 --without-gossip --without-mingle
     volumes:
       - ./src/backend:/app
     depends_on:
@@ -110,7 +128,23 @@ services:
     depends_on:
       - api
 
-volumes:
-  pgdata:
-  rabbitmq_data:
-  redis_data:
+  # DbGate: database UI, preconnected to db. Only with `--profile development`.
+  dbgate:
+    image: dbgate/dbgate:alpine
+    profiles: ["development"]
+    environment:
+      CONNECTIONS: idim
+      LABEL_idim: IDIM Postgres
+      ENGINE_idim: postgres@dbgate-plugin-postgres
+      SERVER_idim: db
+      PORT_idim: 5432
+      USER_idim: ${POSTGRES_USER}
+      PASSWORD_idim: ${POSTGRES_PASSWORD}
+      DATABASE_idim: ${POSTGRES_DB}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./.data/dbgate:/root/.dbgate
+    depends_on:
+      db:
+        condition: service_healthy

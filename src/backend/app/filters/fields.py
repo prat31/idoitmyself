@@ -20,6 +20,8 @@ class FieldType(enum.StrEnum):
     BOOL = "bool"
     NUMBER = "number"
     ENUM = "enum"
+    # A natural-language description, decided by Jev (app/services/jev.py) rather than read from the email.
+    AI = "ai"
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,7 @@ OPERATORS: dict[FieldType, tuple[Operator, ...]] = {
         Operator("lte", "≤"),
     ),
     FieldType.ENUM: (Operator("is", "is"), Operator("is_not", "is not"), Operator("in", "is any of")),
+    FieldType.AI: (Operator("matches", "matches"), Operator("not_matches", "does not match")),
 }
 
 Reader = Callable[[FetchedEmail, str | None], Any]
@@ -209,6 +212,13 @@ FIELDS: dict[str, FieldSpec] = {
             "Any header, by name",
             lambda e, name: e.headers.get((name or "").lower()),
             argument_label="Header name",
+        ),
+        FieldSpec(
+            "ai",
+            "AI (natural language)",
+            FieldType.AI,
+            "Describe the emails in plain words; Jev decides whether each email fits",
+            lambda e, _: None,  # not read from the email: see app/filters/evaluate.py
         ),
         # --- Gmail only ----------------------------------------------------------------------------
         FieldSpec(

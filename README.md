@@ -2,7 +2,9 @@
 
 # IDIM — I Do It Myself
 
-A self-hosted mailbox app. Connect your inbox and define **filters**: conditions on sender, subject, attachments and more, combined with AND / OR. Every new email that passes a filter gets that filter's label. Scanning runs automatically every 30 minutes.
+A self-hosted mailbox app. Connect your inbox and define **filters**: conditions on sender, subject, attachments and more, combined with AND / OR. Every new email that passes a filter gets that filter's label. Scanning runs automatically, every 3 hours by default (30 minutes to daily, set on the Scans page).
+
+🌐 **Website & demo:** [https://idoitmyself.online](https://idoitmyself.online)
 
 ![IDIM dashboard: headline stats, live scan status, emails over time and breakdowns by label, filter and sender](media/demo.png)
 
@@ -11,7 +13,7 @@ A self-hosted mailbox app. Connect your inbox and define **filters**: conditions
 - **Inboxes**: connect Gmail with OAuth (read-only). Tokens are encrypted at rest.
 - **Filters**: rule trees over email fields, with regex support. Each filter applies to whole mailbox types (including inboxes connected later) and/or individual inboxes, adds one label, and can be switched on or off.
 - **Labels**: unique names, with a display name you can edit. Filters add them; filters never remove them.
-- **Scans**: at every :00 and :30, each inbox with an active filter is scanned for the mail received since its previous scan. Earlier mail can be scanned on demand with chosen filters (Scans › New scan). Gmail's quota is budgeted so scans stay under Google's limits.
+- **Scans**: at fixed times (every 30 minutes, hour, 3 hours, 6 hours or daily, counted from midnight in `SCAN_TIMEZONE`), each inbox with an active filter is scanned for the mail received since its previous scan. Earlier mail can be scanned on demand with chosen filters (Scans › New scan). Gmail's quota is budgeted so scans stay under Google's limits.
 - **Dashboard**: stats, trends, breakdowns by label and filter, scan status, and things that need attention.
 
 ## Stack
@@ -64,6 +66,7 @@ cd src/frontend && npx tsc -b && npm run lint
 ```
 src/backend/    FastAPI app, Celery worker and beat, migrations, tests
 src/frontend/   React app
+src/marketing/  Marketing site and interactive demo (idoitmyself.online)
 media/          Logo
 ```
 

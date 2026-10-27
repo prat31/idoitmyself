@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,7 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.filter import Filter, FilterStatus
 from app.models.inbox import Inbox
-from app.models.scan import ACTIVE_SCAN_STATUSES, InboxSync, Scan, ScanKind, ScanStatus
+from app.models.scan import (
+    ACTIVE_SCAN_STATUSES,
+    DEFAULT_SCAN_INTERVAL,
+    InboxSync,
+    Scan,
+    ScanKind,
+    ScanSettings,
+    ScanStatus,
+)
 from app.schemas.scan import AdhocScanCreate, ScanFilterRef, ScanPage, ScanRead
 
 
@@ -77,16 +86,38 @@ async def list_scans(
     )
 
 
-def schedule_boundary(now: datetime) -> datetime:
-    """The latest fixed scan boundary at or before `now` (every SCAN_INTERVAL_MINUTES from the hour,
-    in UTC: with 30, :00 and :30)."""
-    interval = get_settings().scan_interval_minutes
-    return now.replace(minute=now.minute - now.minute % interval, second=0, microsecond=0)
+async def scan_interval(session: AsyncSession) -> int:
+    """How often scheduled scans run, in minutes (one of SCAN_INTERVALS)."""
+    settings = await session.get(ScanSettings, 1)
+    return settings.interval_minutes if settings else DEFAULT_SCAN_INTERVAL
 
 
-def next_run_at(now: datetime) -> datetime:
+async def set_scan_interval(session: AsyncSession, minutes: int) -> None:
+    """Takes effect at the next tick: windows still join up, so nothing is missed or read twice."""
+    settings = await session.get(ScanSettings, 1)
+    if settings is None:
+        session.add(ScanSettings(id=1, interval_minutes=minutes))
+    else:
+        settings.interval_minutes = minutes
+    await session.commit()
+
+
+def _local_boundary(now: datetime, interval_minutes: int) -> datetime:
+    local = now.astimezone(ZoneInfo(get_settings().scan_timezone))
+    elapsed = local.hour * 60 + local.minute
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight + timedelta(minutes=elapsed - elapsed % interval_minutes)
+
+
+def schedule_boundary(now: datetime, interval_minutes: int) -> datetime:
+    """The latest fixed scan boundary at or before `now`: every `interval_minutes` from midnight in
+    SCAN_TIMEZONE (with 180, 00:00, 03:00, ... local time). In UTC."""
+    return _local_boundary(now, interval_minutes).astimezone(UTC)
+
+
+def next_run_at(now: datetime, interval_minutes: int) -> datetime:
     """The next fixed boundary after `now`, when the tick queues scheduled scans."""
-    return schedule_boundary(now) + timedelta(minutes=get_settings().scan_interval_minutes)
+    return (_local_boundary(now, interval_minutes) + timedelta(minutes=interval_minutes)).astimezone(UTC)
 
 
 async def scheduled_from(session: AsyncSession, inbox: Inbox, now: datetime) -> datetime:
@@ -101,7 +132,7 @@ async def scheduled_from(session: AsyncSession, inbox: Inbox, now: datetime) -> 
             Scan.status.in_(ACTIVE_SCAN_STATUSES),
         )
     )
-    starts = [sync.scanned_until if sync else schedule_boundary(now)]
+    starts = [sync.scanned_until if sync else schedule_boundary(now, await scan_interval(session))]
     if in_flight:
         starts.append(in_flight)
     return min(starts)

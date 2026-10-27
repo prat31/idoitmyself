@@ -2,6 +2,7 @@ import { ListFilter, Pencil } from 'lucide-react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 
+import { DefaultBadge } from '@/components/layout/default-badge'
 import { Figure, ItemRow, MetaDot } from '@/components/layout/item-list'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -47,6 +48,7 @@ export function FilterRow({ filter, catalogue }: { filter: Filter; catalogue: Fi
       badges={
         <>
           <FilterStatusBadge status={filter.status} />
+          {filter.is_default && <DefaultBadge />}
           {filter.scope.mailbox_types.map((type) => (
             <Badge key={type} variant="outline" className="text-muted-foreground" title="Every inbox of this type, including future ones">
               All {providerById[type].label}

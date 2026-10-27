@@ -16,6 +16,8 @@ from app.models.inbox import InboxProvider
 MAX_ITEMS = 25  # per group
 MAX_CONDITIONS = 50  # per rule
 MAX_VALUE_LENGTH = 500
+MAX_PROMPT_LENGTH = 1000  # an AI condition's description
+MAX_AI_CONDITIONS = 5  # per rule: each one is a question to Jev for every email that reaches it
 
 Join = Literal["and", "or"]
 
@@ -68,6 +70,13 @@ class Condition(BaseModel):
                         re.compile(self.value)
                     except re.error as exc:
                         raise ValueError(f"{spec.label}: invalid regex ({exc})") from None
+            case FieldType.AI:
+                if not isinstance(self.value, str) or not self.value.strip():
+                    raise ValueError("AI condition: describe the emails it should match")
+                if len(self.value) > MAX_PROMPT_LENGTH:
+                    raise ValueError(
+                        f"AI condition: description must be at most {MAX_PROMPT_LENGTH} characters"
+                    )
             case FieldType.NUMBER:
                 if not isinstance(self.value, float):
                     raise ValueError(f"{spec.label}: a number is required")
@@ -106,6 +115,8 @@ class Rule(BaseModel):
         _check_joins(self.items)
         if sum(1 for _ in self.conditions()) > MAX_CONDITIONS:
             raise ValueError(f"A rule can have at most {MAX_CONDITIONS} conditions")
+        if sum(1 for _ in self.ai_conditions()) > MAX_AI_CONDITIONS:
+            raise ValueError(f"A rule can have at most {MAX_AI_CONDITIONS} AI conditions")
         return self
 
     def conditions(self) -> Iterator[Condition]:
@@ -114,6 +125,9 @@ class Rule(BaseModel):
                 yield item
             else:
                 yield from item.items
+
+    def ai_conditions(self) -> Iterator[Condition]:
+        return (c for c in self.conditions() if FIELDS[c.field].type == FieldType.AI)
 
 
 def check_mailbox_types(rule: Rule, mailbox_types: frozenset[InboxProvider]) -> None:

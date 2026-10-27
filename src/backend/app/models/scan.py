@@ -3,7 +3,18 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, Table, Text, text
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    SmallInteger,
+    Table,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,6 +22,12 @@ from app.db.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.filter import Filter
+
+
+# How often scheduled scans can run, in minutes. Each divides a day, so boundaries fall at the same
+# times every day (from midnight in SCAN_TIMEZONE).
+SCAN_INTERVALS = (30, 60, 180, 360, 1440)
+DEFAULT_SCAN_INTERVAL = 180
 
 
 class ScanKind(enum.StrEnum):
@@ -94,3 +111,18 @@ class InboxSync(TimestampMixin, Base):
     )
     # End of the last scheduled scan's window, set once that window was listed.
     scanned_until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ScanSettings(TimestampMixin, Base):
+    """The one row (id 1) saying how often scheduled scans run. Changed from the Scans page."""
+
+    __tablename__ = "scan_settings"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="single_row"),
+        CheckConstraint(
+            f"interval_minutes IN ({', '.join(map(str, SCAN_INTERVALS))})", name="interval_allowed"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
+    interval_minutes: Mapped[int] = mapped_column(Integer, default=DEFAULT_SCAN_INTERVAL)

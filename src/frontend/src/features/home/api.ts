@@ -4,7 +4,7 @@ import { apiFetch } from '@/lib/api'
 import { useActiveScans, type Scan } from '@/features/scans/api'
 import { timeZone } from '@/features/stats/api'
 
-export type DashboardSummary = {
+export type HomeSummary = {
   scans_completed: number
   scans_failed: number
   /** New emails fetched and filtered (excludes ones already stored). */
@@ -18,7 +18,7 @@ export type DashboardSummary = {
 
 type AttentionInbox = { inbox_id: string; name: string; email_address: string; error: string; scan_id: string | null }
 
-export type DashboardAttention = {
+export type HomeAttention = {
   /** The inbox's latest finished scan failed. */
   inboxes_with_errors: AttentionInbox[]
   /** Failed, or completed with failed emails (last 30 days). */
@@ -36,11 +36,31 @@ export type DashboardAttention = {
   labels_without_active_filter: { label_id: string; display_name: string; color: string }[]
   /** No active filter covers the inbox, so it isn't scanned. */
   inboxes_without_filters: AttentionInbox[]
+  /** Active, with AI conditions, but OPENROUTER_API_KEY isn't set: scans skip them. */
+  filters_skipped_without_ai_key: { filter_id: string; name: string; label_display_name: string }[]
+  /** Processor runs waiting for something only the user can give (e.g. a PDF password). */
+  inputs_needed: {
+    name: string
+    scope: string
+    /** What to ask, e.g. "PDF password for estatement@yes.bank.in (Credit card bill)". */
+    prompt: string
+    /** Typed hidden (passwords and the like). */
+    secret: boolean
+    waiting_runs: number
+    /** A saved value didn't work (otherwise none is saved yet). */
+    wrong: boolean
+    email_subject: string | null
+    email_sent_at: string
+    /** The latest waiting email, in its provider's web UI. */
+    open_url: string | null
+  }[]
 }
 
 /** Everything the Needs attention section would list; 0 means the section is left out. */
-export function attentionCount(data: DashboardAttention): number {
+export function attentionCount(data: HomeAttention): number {
   return (
+    data.inputs_needed.length +
+    data.filters_skipped_without_ai_key.length +
     data.inboxes_with_errors.length +
     data.scans_with_problems.length +
     data.inboxes_without_filters.length +
@@ -49,7 +69,7 @@ export function attentionCount(data: DashboardAttention): number {
   )
 }
 
-export type DashboardStatus = {
+export type HomeStatus = {
   scan_interval_minutes: number
   inboxes: {
     inbox_id: string
@@ -66,7 +86,7 @@ export type DashboardStatus = {
   }[]
 }
 
-export type DashboardRecent = {
+export type HomeRecent = {
   matches: {
     email_id: string
     sent_at: string
@@ -83,45 +103,45 @@ export type DashboardRecent = {
   }[]
 }
 
-const key = ['dashboard'] as const
+const key = ['home'] as const
 
-export function useDashboardSummary(start: string | null, end: string | null, refetchInterval?: number) {
+export function useHomeSummary(start: string | null, end: string | null, refetchInterval?: number) {
   const params = new URLSearchParams({ tz: timeZone })
   if (start) params.set('start', start)
   if (end) params.set('end', end)
   return useQuery({
     queryKey: [...key, 'summary', params.toString()],
-    queryFn: () => apiFetch<DashboardSummary>(`/dashboard/summary?${params}`),
+    queryFn: () => apiFetch<HomeSummary>(`/home/summary?${params}`),
     placeholderData: keepPreviousData,
     refetchInterval,
   })
 }
 
-export function useDashboardAttention(refetchInterval?: number) {
+export function useHomeAttention(refetchInterval?: number) {
   return useQuery({
     queryKey: [...key, 'attention'],
-    queryFn: () => apiFetch<DashboardAttention>('/dashboard/attention'),
+    queryFn: () => apiFetch<HomeAttention>('/home/attention'),
     refetchInterval,
   })
 }
 
-export function useDashboardStatus(refetchInterval?: number) {
+export function useHomeStatus(refetchInterval?: number) {
   return useQuery({
     queryKey: [...key, 'status'],
-    queryFn: () => apiFetch<DashboardStatus>('/dashboard/status'),
+    queryFn: () => apiFetch<HomeStatus>('/home/status'),
     refetchInterval,
   })
 }
 
-export function useDashboardRecent(limit = 5, refetchInterval?: number) {
+export function useHomeRecent(limit = 5, refetchInterval?: number) {
   return useQuery({
     queryKey: [...key, 'recent', limit],
-    queryFn: () => apiFetch<DashboardRecent>(`/dashboard/recent?limit=${limit}`),
+    queryFn: () => apiFetch<HomeRecent>(`/home/recent?limit=${limit}`),
     refetchInterval,
   })
 }
 
-/** How often the dashboard refreshes: every few seconds while a scan is working (counts move by the
+/** How often the Home page refreshes: every few seconds while a scan is working (counts move by the
  *  second), otherwise every 30 seconds (scans start on the server's schedule). */
 export function useLiveInterval(): number {
   const { data } = useActiveScans()

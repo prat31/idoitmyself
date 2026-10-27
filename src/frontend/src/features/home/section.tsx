@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-/** A titled dashboard section: heading row (with an optional scope note) above its content. */
+/** A titled Home page section: heading row (with an optional scope note) above its content. */
 export function Section({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
   return (
     <section className="space-y-3">

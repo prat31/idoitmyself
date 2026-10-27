@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { useScans } from './api'
 import { NewScanDialog } from './new-scan-dialog'
 import { NextScan } from './next-scan'
+import { ScanIntervalSelect } from './scan-interval-select'
 import { ScanRow } from './scan-row'
 
 const PAGE_SIZE = 25
@@ -50,13 +51,13 @@ export function ScansPage() {
     <>
       <PageHeader
         title="Scans"
-        description={
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span>Scheduled scans run every 30 minutes.</span>
-            <NextScan />
-          </span>
+        description={<NextScan />}
+        actions={
+          <>
+            <ScanIntervalSelect />
+            <NewScanDialog trigger={newScanButton} />
+          </>
         }
-        actions={<NewScanDialog trigger={newScanButton} />}
       />
       <PageBody>
         {isPending ? (
@@ -92,7 +93,7 @@ export function ScansPage() {
           <EmptyState
             icon={ScanSearch}
             title="No scans yet"
-            description="Scans start on their own at the next :00 or :30 once an inbox is connected and an active filter covers it."
+            description="Scans start on their own at the next scheduled time once an inbox is connected and an active filter covers it."
           />
         )}
       </PageBody>

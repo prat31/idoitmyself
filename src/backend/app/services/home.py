@@ -1,4 +1,4 @@
-"""App-wide dashboard: scan summary, attention items, live status and recent matches.
+"""The Home page: scan summary, attention items, live status and recent matches.
 Everything is derived from stored data (scans, filters, email_labels) — no provider calls."""
 
 import uuid
@@ -14,22 +14,26 @@ from app.models.email import Email, EmailLabel
 from app.models.filter import Filter, FilterStatus
 from app.models.inbox import Inbox
 from app.models.label import Label
+from app.models.processor import InputValue, ProcessorRun, ProcessorRunStatus
 from app.models.scan import ACTIVE_SCAN_STATUSES, InboxSync, Scan, ScanStatus
-from app.schemas.dashboard import (
+from app.processors.context import SECRET_INPUTS
+from app.schemas.home import (
     AttentionFilter,
     AttentionInbox,
+    AttentionInput,
     AttentionLabel,
     AttentionScan,
-    DashboardAttention,
-    DashboardRecent,
-    DashboardStatus,
-    DashboardSummary,
+    HomeAttention,
+    HomeRecent,
+    HomeStatus,
+    HomeSummary,
     InboxStatus,
     LabelMonth,
     RecentMatch,
 )
-from app.services.filters import active_filters
-from app.services.scans import to_read
+from app.services import jev
+from app.services.filters import active_filters, has_ai_conditions
+from app.services.scans import scan_interval, to_read
 from app.services.stats import parse_timezone
 
 RECENT_PROBLEM_DAYS = 30
@@ -37,7 +41,7 @@ RECENT_PROBLEM_DAYS = 30
 
 async def summary(
     session: AsyncSession, *, start: datetime | None, end: datetime | None, tz_name: str
-) -> DashboardSummary:
+) -> HomeSummary:
     tz = parse_timezone(tz_name)
     finished = [Scan.finished_at.is_not(None)]
     if start:
@@ -74,7 +78,7 @@ async def summary(
     for label_id, bucket_month, count in month_rows:
         per_label.setdefault(label_id, {})[bucket_month] = count
 
-    return DashboardSummary(
+    return HomeSummary(
         scans_completed=completed,
         scans_failed=failed,
         emails_scanned=int(processed) - int(skipped),
@@ -94,7 +98,7 @@ async def summary(
     )
 
 
-async def attention(session: AsyncSession) -> DashboardAttention:
+async def attention(session: AsyncSession) -> HomeAttention:
     active = Filter.status == FilterStatus.ACTIVE
     never_matched = await session.execute(
         select(Filter.id, Filter.name, Label.display_name)
@@ -150,7 +154,7 @@ async def attention(session: AsyncSession) -> DashboardAttention:
                 )
             )
 
-    return DashboardAttention(
+    return HomeAttention(
         inboxes_with_errors=inboxes_with_errors,
         scans_with_problems=[
             AttentionScan(
@@ -172,10 +176,51 @@ async def attention(session: AsyncSession) -> DashboardAttention:
             for label in unwritten
         ],
         inboxes_without_filters=inboxes_without_filters,
+        inputs_needed=await _inputs_needed(session),
+        filters_skipped_without_ai_key=[]
+        if jev.is_configured()
+        else [
+            AttentionFilter(filter_id=f.id, name=f.name, label_display_name=f.label.display_name)
+            for f in active_scoped
+            if has_ai_conditions(f)
+        ],
     )
 
 
-async def status(session: AsyncSession) -> DashboardStatus:
+async def _inputs_needed(session: AsyncSession) -> list[AttentionInput]:
+    """Runs waiting for user input, one item per input (name and scope), with the latest waiting email."""
+    rows = await session.execute(
+        select(ProcessorRun, Email, Inbox, InputValue.id)
+        .join(Email, Email.id == ProcessorRun.email_id)
+        .join(Inbox, Inbox.id == Email.inbox_id)
+        .outerjoin(
+            InputValue,
+            (InputValue.name == ProcessorRun.input_name) & (InputValue.scope == ProcessorRun.input_scope),
+        )
+        .where(ProcessorRun.status == ProcessorRunStatus.NEEDS_INPUT, ProcessorRun.input_name.is_not(None))
+        .order_by(Email.sent_at.desc())
+    )
+    needed: dict[tuple[str, str], AttentionInput] = {}
+    for run, email, inbox, saved in rows:
+        key = (run.input_name, run.input_scope or "")
+        if key in needed:
+            needed[key].waiting_runs += 1
+            continue
+        needed[key] = AttentionInput(
+            name=run.input_name,
+            scope=run.input_scope or "",
+            prompt=run.input_prompt or run.input_name,
+            secret=run.input_name in SECRET_INPUTS,
+            waiting_runs=1,
+            wrong=saved is not None,
+            email_subject=email.subject,
+            email_sent_at=email.sent_at,
+            open_url=message_url(inbox.provider, inbox.email_address, email.provider_message_id),
+        )
+    return list(needed.values())
+
+
+async def status(session: AsyncSession) -> HomeStatus:
     settings = get_settings()
     window = settings.gmail_quota_window_seconds
     limit = max(
@@ -217,10 +262,10 @@ async def status(session: AsyncSession) -> DashboardStatus:
                 quota_window_seconds=window,
             )
         )
-    return DashboardStatus(scan_interval_minutes=settings.scan_interval_minutes, inboxes=result)
+    return HomeStatus(scan_interval_minutes=await scan_interval(session), inboxes=result)
 
 
-async def recent(session: AsyncSession, limit: int = 10) -> DashboardRecent:
+async def recent(session: AsyncSession, limit: int = 10) -> HomeRecent:
     rows = await session.execute(
         select(
             Email, Inbox.name, Inbox.provider, Inbox.email_address, Label, Filter.name, EmailLabel.applied_at
@@ -232,7 +277,7 @@ async def recent(session: AsyncSession, limit: int = 10) -> DashboardRecent:
         .order_by(EmailLabel.applied_at.desc(), Email.sent_at.desc())
         .limit(limit)
     )
-    return DashboardRecent(
+    return HomeRecent(
         matches=[
             RecentMatch(
                 email_id=email.id,

@@ -1,4 +1,5 @@
-"""initial schema: inboxes, tags, labels, filters (+ scope), scans (+ ad hoc filters), emails
+"""initial schema: inboxes, tags, labels, filters (+ scope), scans (+ ad hoc filters, schedule), emails,
+processors (+ labels, runs, records, inputs, actions, notifications), applied built-in defaults
 
 Revision ID: 0001
 Revises:
@@ -23,7 +24,30 @@ scan_kind = postgresql.ENUM("scheduled", "adhoc", name="scan_kind", create_type=
 scan_status = postgresql.ENUM(
     "queued", "running", "completed", "failed", "cancelled", name="scan_status", create_type=False
 )
-ENUMS = (inbox_provider, filter_status, scan_kind, scan_status)
+processor_status = postgresql.ENUM("active", "inactive", name="processor_status", create_type=False)
+processor_run_status = postgresql.ENUM(
+    "queued",
+    "running",
+    "succeeded",
+    "skipped",
+    "failed",
+    "needs_input",
+    "cancelled",
+    name="processor_run_status",
+    create_type=False,
+)
+action_status = postgresql.ENUM(
+    "pending", "done", "failed", "cancelled", name="action_status", create_type=False
+)
+ENUMS = (
+    inbox_provider,
+    filter_status,
+    scan_kind,
+    scan_status,
+    processor_status,
+    processor_run_status,
+    action_status,
+)
 
 
 def _timestamps() -> list[sa.Column]:
@@ -96,6 +120,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(50), nullable=False),
         sa.Column("display_name", sa.String(50), nullable=False),
         sa.Column("color", sa.String(20), server_default=sa.text("'gray'"), nullable=False),
+        sa.Column("default_key", sa.String(100), nullable=True),
         *_timestamps(),
         sa.CheckConstraint(
             "name <> '' AND name = btrim(regexp_replace(lower(name), '[^[:alnum:]]+', '_', 'g'), '_')",
@@ -107,6 +132,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name="pk_labels"),
         sa.UniqueConstraint("name", name="uq_labels_name"),
+        sa.UniqueConstraint("default_key", name="uq_labels_default_key"),
     )
 
     op.create_table(
@@ -120,11 +146,13 @@ def upgrade() -> None:
         sa.Column(
             "status_changed_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),
+        sa.Column("default_key", sa.String(100), nullable=True),
         *_timestamps(),
         sa.ForeignKeyConstraint(
             ["label_id"], ["labels.id"], name="fk_filters_label_id_labels", ondelete="RESTRICT"
         ),
         sa.PrimaryKeyConstraint("id", name="pk_filters"),
+        sa.UniqueConstraint("default_key", name="uq_filters_default_key"),
     )
     op.create_index("ix_filters_label_id", "filters", ["label_id"])
     op.create_index("ix_filters_status", "filters", ["status"])
@@ -209,6 +237,19 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "scan_settings",
+        sa.Column("id", sa.SmallInteger(), nullable=False),
+        sa.Column("interval_minutes", sa.Integer(), nullable=False),
+        *_timestamps(),
+        sa.CheckConstraint("id = 1", name="ck_scan_settings_single_row"),
+        sa.CheckConstraint(
+            "interval_minutes IN (30, 60, 180, 360, 1440)", name="ck_scan_settings_interval_allowed"
+        ),
+        sa.PrimaryKeyConstraint("id", name="pk_scan_settings"),
+    )
+    op.execute("INSERT INTO scan_settings (id, interval_minutes) VALUES (1, 180)")
+
+    op.create_table(
         "emails",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("inbox_id", sa.UUID(), nullable=False),
@@ -259,12 +300,205 @@ def upgrade() -> None:
     op.create_index("ix_email_labels_label_id", "email_labels", ["label_id"])
     op.create_index("ix_email_labels_filter_id", "email_labels", ["filter_id"])
 
+    op.create_table(
+        "processors",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("name", sa.String(100), nullable=False),
+        sa.Column("description", sa.Text(), nullable=True),
+        sa.Column("kind", sa.String(50), nullable=False),
+        sa.Column("config", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False),
+        sa.Column("status", processor_status, nullable=False),
+        sa.Column(
+            "status_changed_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column("default_key", sa.String(100), nullable=True),
+        *_timestamps(),
+        sa.PrimaryKeyConstraint("id", name="pk_processors"),
+        sa.UniqueConstraint("default_key", name="uq_processors_default_key"),
+    )
+    op.create_index("ix_processors_status", "processors", ["status"])
+
+    # The labels that trigger a processor (n–n).
+    op.create_table(
+        "processor_labels",
+        sa.Column("processor_id", sa.UUID(), nullable=False),
+        sa.Column("label_id", sa.UUID(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["processor_id"],
+            ["processors.id"],
+            name="fk_processor_labels_processor_id_processors",
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["label_id"], ["labels.id"], name="fk_processor_labels_label_id_labels", ondelete="RESTRICT"
+        ),
+        sa.PrimaryKeyConstraint("processor_id", "label_id", name="pk_processor_labels"),
+    )
+
+    op.create_table(
+        "processor_runs",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("processor_id", sa.UUID(), nullable=True),
+        sa.Column("email_id", sa.UUID(), nullable=False),
+        sa.Column(
+            "trigger_label_ids", postgresql.ARRAY(sa.UUID()), server_default=sa.text("'{}'"), nullable=False
+        ),
+        sa.Column("status", processor_run_status, nullable=False),
+        _counter("attempts"),
+        sa.Column("error", sa.Text(), nullable=True),
+        sa.Column("kind_version", sa.Integer(), nullable=True),
+        _counter("records_written"),
+        sa.Column("input_name", sa.String(50), nullable=True),
+        sa.Column("input_scope", sa.Text(), nullable=True),
+        sa.Column("input_prompt", sa.Text(), nullable=True),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
+        *_timestamps(),
+        sa.ForeignKeyConstraint(
+            ["processor_id"],
+            ["processors.id"],
+            name="fk_processor_runs_processor_id_processors",
+            ondelete="SET NULL",
+        ),
+        sa.ForeignKeyConstraint(
+            ["email_id"], ["emails.id"], name="fk_processor_runs_email_id_emails", ondelete="CASCADE"
+        ),
+        sa.PrimaryKeyConstraint("id", name="pk_processor_runs"),
+        sa.UniqueConstraint("processor_id", "email_id", name="uq_processor_runs_processor_id"),
+    )
+    op.create_index("ix_processor_runs_processor_id", "processor_runs", ["processor_id"])
+    op.create_index("ix_processor_runs_email_id", "processor_runs", ["email_id"])
+    op.create_index("ix_processor_runs_status", "processor_runs", ["status"])
+
+    # Dataset rows written by processors (see app.processors.records).
+    op.create_table(
+        "records",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("dataset", sa.String(100), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
+        sa.Column("processor_id", sa.UUID(), nullable=True),
+        sa.Column("email_id", sa.UUID(), nullable=True),
+        sa.Column("run_id", sa.UUID(), nullable=True),
+        sa.Column("key", sa.Text(), nullable=True),
+        sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("data", postgresql.JSONB(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["processor_id"],
+            ["processors.id"],
+            name="fk_records_processor_id_processors",
+            ondelete="SET NULL",
+        ),
+        sa.ForeignKeyConstraint(
+            ["email_id"], ["emails.id"], name="fk_records_email_id_emails", ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(
+            ["run_id"], ["processor_runs.id"], name="fk_records_run_id_processor_runs", ondelete="SET NULL"
+        ),
+        sa.PrimaryKeyConstraint("id", name="pk_records"),
+    )
+    op.create_index("ix_records_dataset_occurred_at", "records", ["dataset", "occurred_at"])
+    op.create_index("ix_records_processor_id_email_id", "records", ["processor_id", "email_id"])
+    op.create_index("ix_records_dataset_key", "records", ["dataset", "key"])
+
+    op.create_table(
+        "input_values",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("name", sa.String(50), nullable=False),
+        sa.Column("scope", sa.Text(), nullable=False),
+        sa.Column("encrypted_value", sa.Text(), nullable=False),
+        *_timestamps(),
+        sa.PrimaryKeyConstraint("id", name="pk_input_values"),
+        sa.UniqueConstraint("name", "scope", name="uq_input_values_name"),
+    )
+
+    op.create_table(
+        "actions",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("processor_id", sa.UUID(), nullable=True),
+        sa.Column("email_id", sa.UUID(), nullable=True),
+        sa.Column("run_id", sa.UUID(), nullable=True),
+        sa.Column("key", sa.String(100), nullable=False),
+        sa.Column("type", sa.String(50), nullable=False),
+        sa.Column("payload", postgresql.JSONB(), nullable=False),
+        sa.Column("run_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("status", action_status, nullable=False),
+        _counter("attempts"),
+        sa.Column("error", sa.Text(), nullable=True),
+        sa.Column("dispatched_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("done_at", sa.DateTime(timezone=True), nullable=True),
+        *_timestamps(),
+        sa.ForeignKeyConstraint(
+            ["processor_id"],
+            ["processors.id"],
+            name="fk_actions_processor_id_processors",
+            ondelete="SET NULL",
+        ),
+        sa.ForeignKeyConstraint(
+            ["email_id"], ["emails.id"], name="fk_actions_email_id_emails", ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(
+            ["run_id"], ["processor_runs.id"], name="fk_actions_run_id_processor_runs", ondelete="SET NULL"
+        ),
+        sa.PrimaryKeyConstraint("id", name="pk_actions"),
+        sa.UniqueConstraint("processor_id", "email_id", "key", name="uq_actions_processor_id"),
+    )
+    op.create_index("ix_actions_processor_id", "actions", ["processor_id"])
+    op.create_index("ix_actions_run_at", "actions", ["run_at"])
+    op.create_index("ix_actions_status", "actions", ["status"])
+
+    op.create_table(
+        "notifications",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("action_id", sa.UUID(), nullable=True),
+        sa.Column("processor_id", sa.UUID(), nullable=True),
+        sa.Column("email_id", sa.UUID(), nullable=True),
+        sa.Column("title", sa.String(200), nullable=False),
+        sa.Column("body", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("read_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("telegram_sent_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("dismissed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["action_id"], ["actions.id"], name="fk_notifications_action_id_actions", ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(
+            ["processor_id"],
+            ["processors.id"],
+            name="fk_notifications_processor_id_processors",
+            ondelete="SET NULL",
+        ),
+        sa.ForeignKeyConstraint(
+            ["email_id"], ["emails.id"], name="fk_notifications_email_id_emails", ondelete="SET NULL"
+        ),
+        sa.PrimaryKeyConstraint("id", name="pk_notifications"),
+        sa.UniqueConstraint("action_id", name="uq_notifications_action_id"),
+    )
+    op.create_index("ix_notifications_created_at", "notifications", ["created_at"])
+    op.create_index("ix_notifications_read_at", "notifications", ["read_at"])
+
+    op.create_table(
+        "applied_defaults",
+        sa.Column("key", sa.String(100), nullable=False),
+        sa.Column("applied_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.PrimaryKeyConstraint("key", name="pk_applied_defaults"),
+    )
+
 
 def downgrade() -> None:
     for table in (
+        "applied_defaults",
+        "notifications",
+        "actions",
+        "input_values",
+        "records",
+        "processor_runs",
+        "processor_labels",
+        "processors",
         "email_labels",
         "emails",
         "inbox_sync",
+        "scan_settings",
         "scan_filters",
         "scans",
         "filter_inboxes",

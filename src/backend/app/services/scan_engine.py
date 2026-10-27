@@ -1,15 +1,19 @@
 """Scans inboxes and runs new emails through the active filters. Three steps, each a Celery task (see
 app/worker.py):
 
-1. `start_due_scans` (the tick, at fixed clock boundaries such as :00 and :30): queue a scheduled scan
-   for every inbox covered by an active filter's scope, over the window from where its last scheduled
-   scan stopped up to the boundary. Ad hoc scans are queued by the API instead.
+1. `start_due_scans` (the tick): at each fixed boundary of the scan interval (set on the Scans page,
+   e.g. every 3 hours from midnight in SCAN_TIMEZONE), queue a scheduled scan for every inbox covered
+   by an active filter's scope, over the window from where its last scheduled scan stopped up to the
+   boundary. Ad hoc scans are queued by the API instead.
 2. `discover` lists the emails received in the scan's window (and, for a scheduled scan, records that
    the inbox is scanned up to the window's end).
 3. `process_batch` handles a batch: emails already stored are skipped (filters only see new email);
    the rest are fetched, stored (metadata only), and run through the active filters covering the inbox,
-   whose labels are added. Filters never remove labels. Transient failures come back as deferred work,
-   which the task re-publishes to the broker with a delay; workers never sleep to retry.
+   whose labels are added, and runs are queued for the processors on the labels just added (see
+   app.services.processor_engine). Jev is asked only about the AI conditions that could still change a
+   filter's result for the email (one call per email). Filters never remove labels. Transient failures
+   come back as deferred work, which the task re-publishes to the broker with a delay; workers never
+   sleep to retry.
 
 A scan completes when processed + failed reaches the number found. Provider-agnostic: mailbox access
 goes through MailSource."""
@@ -29,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.quota import QuotaExhausted
 from app.core.retry import TransientError
-from app.filters.evaluate import Predicate, compile_rule
+from app.filters.evaluate import Answers, CompiledRule, compile_rule
 from app.filters.rule import Rule
 from app.mail.sources import open_mail_source
 from app.mail.types import FetchedEmail, MailSource, MailSourceError
@@ -37,8 +41,10 @@ from app.models.email import Email, EmailLabel
 from app.models.filter import Filter
 from app.models.inbox import Inbox
 from app.models.scan import ACTIVE_SCAN_STATUSES, InboxSync, Scan, ScanKind, ScanStatus
-from app.services.filters import active_filters, active_filters_for
-from app.services.scans import schedule_boundary
+from app.services import jev
+from app.services.filters import active_filters, active_filters_for, has_ai_conditions
+from app.services.processor_engine import create_runs
+from app.services.scans import scan_interval, schedule_boundary
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +56,7 @@ OpenSourceFn = Callable[[Inbox, httpx.AsyncClient, SessionFactory], MailSource]
 class CompiledFilter:
     filter_id: uuid.UUID
     label_id: uuid.UUID
-    matches: Predicate
+    matches: CompiledRule
 
 
 @dataclass
@@ -59,37 +65,63 @@ class BatchOutcome:
     - `deferred`: hit a provider error (rate limit, 5xx, network) — retried with back-off, and it
       counts as an attempt;
     - `paced`: held back by our own quota budget, or never started because the batch was throttled —
-      re-queued for the next budget window without using an attempt."""
+      re-queued for the next budget window without using an attempt.
+
+    `processor_runs` are the runs queued for labels this batch added, to publish."""
 
     deferred: list[str] = field(default_factory=list)
     retry_after: float | None = None
     paced: list[str] = field(default_factory=list)
     paced_after: float | None = None
+    processor_runs: list[uuid.UUID] = field(default_factory=list)
 
 
-def matching_labels(filters: list[CompiledFilter], email: FetchedEmail) -> dict[uuid.UUID, uuid.UUID]:
-    """label_id -> the first filter (in creation order) that matched and adds it."""
+def matching_labels(
+    filters: list[CompiledFilter], email: FetchedEmail, answers: Answers | None = None
+) -> dict[uuid.UUID, uuid.UUID]:
+    """label_id -> the first filter (in creation order) that matched and adds it. `answers` are Jev's
+    for the email's AI questions (see pending_questions)."""
     labels: dict[uuid.UUID, uuid.UUID] = {}
     for f in filters:
-        if f.label_id not in labels and f.matches(email):
+        if f.label_id not in labels and f.matches(email, answers):
             labels[f.label_id] = f.filter_id
     return labels
 
 
+def pending_questions(filters: list[CompiledFilter], email: FetchedEmail) -> dict[str, str]:
+    """The AI questions (key -> description) to ask Jev about this email: those that could change
+    whether a filter matches. A filter whose label an earlier filter already adds for sure needs
+    nothing. Empty for most emails, so Jev is only called when its answer matters."""
+    questions: dict[str, str] = {}
+    certain: set[uuid.UUID] = set()
+    for f in filters:
+        if f.label_id in certain:
+            continue
+        pending = f.matches.pending(email)
+        if not pending and f.matches(email):
+            certain.add(f.label_id)
+        questions |= {key: f.matches.questions[key] for key in pending}
+    return questions
+
+
 def compile_filters(filters: list[Filter]) -> list[CompiledFilter]:
     compiled: list[CompiledFilter] = []
+    threshold = get_settings().jev_threshold
     for f in filters:
         try:
-            compiled.append(CompiledFilter(f.id, f.label_id, compile_rule(Rule.model_validate(f.rule))))
+            rule = compile_rule(Rule.model_validate(f.rule), threshold)
+            compiled.append(CompiledFilter(f.id, f.label_id, rule))
         except ValueError as exc:  # stored rule no longer valid (e.g. a field was removed)
             logger.error("Filter %s (%s) skipped: invalid rule: %s", f.id, f.name, exc)
     return compiled
 
 
 async def start_due_scans(session_factory: SessionFactory, now: datetime | None = None) -> list[uuid.UUID]:
-    """The tick (Celery beat, at each interval boundary, e.g. :00 and :30): queue a scheduled scan per
-    inbox an active filter covers, for emails received from where its last scheduled scan stopped (or
-    one interval back, the first time) up to the boundary. Windows join up, so nothing is missed or
+    """The tick (Celery beat, every 15 minutes): queue a scheduled scan per inbox an active filter covers,
+    once a boundary of the stored interval (every interval from midnight in SCAN_TIMEZONE) has passed
+    since its last one: for emails received from where its last scheduled scan stopped (or one interval
+    back, the first time) up to the boundary. Ticks between boundaries find nothing to do. A changed
+    interval applies from the next tick. Windows join up, so nothing is missed or
     read twice; after downtime the next window simply spans the gap.
 
     An inbox whose scheduled scan is still in flight is skipped this time (its next window catches up).
@@ -97,10 +129,11 @@ async def start_due_scans(session_factory: SessionFactory, now: datetime | None 
     so it can't block the inbox forever. Returns the new scans' ids (the caller publishes them)."""
     settings = get_settings()
     now = now or datetime.now(UTC)
-    boundary = schedule_boundary(now)
     stale_before = now - timedelta(minutes=settings.scan_stale_minutes)
     created: list[uuid.UUID] = []
     async with session_factory() as session:
+        interval = await scan_interval(session)
+        boundary = schedule_boundary(now, interval)
         active = await active_filters(session)
         scanned_until = dict(
             (await session.execute(select(InboxSync.inbox_id, InboxSync.scanned_until))).all()  # type: ignore[arg-type]
@@ -120,11 +153,9 @@ async def start_due_scans(session_factory: SessionFactory, now: datetime | None 
                     scan.finished_at = now
             if any(s.status != ScanStatus.FAILED and s.kind == ScanKind.SCHEDULED for s in in_flight):
                 continue
-            start = scanned_until.get(inbox.id) or boundary - timedelta(
-                minutes=settings.scan_interval_minutes
-            )
+            start = scanned_until.get(inbox.id) or boundary - timedelta(minutes=interval)
             if start >= boundary:
-                continue  # this window was already scanned
+                continue  # this window was already scanned (the tick runs more often than most intervals)
             scan = Scan(
                 inbox_id=inbox.id,
                 kind=ScanKind.SCHEDULED,
@@ -214,6 +245,7 @@ async def process_batch(
     session_factory: SessionFactory,
     client: httpx.AsyncClient,
     open_source: OpenSourceFn = open_mail_source,
+    ask: jev.AskFn = jev.ask,
     concurrency: int | None = None,
 ) -> BatchOutcome:
     """Handle a batch of the scan's emails. Never waits on a retry: emails hitting a transient failure
@@ -236,6 +268,18 @@ async def process_batch(
             candidates = [f for f in candidates if f.id in chosen]
             if not candidates:
                 await fail_scan(session_factory, scan_id, "None of its filters is active any more")
+                return BatchOutcome()
+        # Without OPENROUTER_API_KEY, filters with AI conditions are skipped (the others still run).
+        if not jev.is_configured() and (skipped := [f for f in candidates if has_ai_conditions(f)]):
+            logger.warning(
+                "Scan %s: OPENROUTER_API_KEY isn't set; skipping filters with AI conditions: %s",
+                scan_id,
+                ", ".join(f.name for f in skipped),
+            )
+            candidates = [f for f in candidates if f not in skipped]
+            if not candidates and scan.kind == ScanKind.ADHOC:
+                error = "Its filters have AI conditions, and OPENROUTER_API_KEY isn't set"
+                await fail_scan(session_factory, scan_id, error)
                 return BatchOutcome()
         filters = compile_filters(candidates)
         stored = set(
@@ -271,9 +315,11 @@ async def process_batch(
                 return
             try:
                 email = await source.fetch(message_id)
-                labels = matching_labels(filters, email)
+                questions = pending_questions(filters, email)
+                answers = await ask(client, email, questions) if questions else {}
+                labels = matching_labels(filters, email, answers)
                 async with session_factory() as session:
-                    await _store(session, scan_id, inbox.id, email, labels)
+                    outcome.processor_runs += await _store(session, scan_id, inbox.id, email, labels)
             except QuotaExhausted as exc:
                 throttled.set()
                 pace(message_id, exc.retry_after)
@@ -300,6 +346,12 @@ async def process_batch(
                     )
                     throttled.set()
                     defer(message_id, exc.retry_after)
+            except jev.JevError as exc:
+                if exc.fatal:  # e.g. a bad key or no credits: every email would fail the same way
+                    await fail_scan(session_factory, scan_id, str(exc))
+                else:
+                    logger.warning("Scan %s: message %s failed: %s", scan_id, message_id, exc)
+                    await _bump(session_factory, scan_id, failed=1)
             except Exception as exc:  # anything else fails this email, never the batch
                 logger.warning("Scan %s: message %s failed: %r", scan_id, message_id, exc)
                 await _bump(session_factory, scan_id, failed=1)
@@ -372,9 +424,10 @@ async def _store(
     inbox_id: uuid.UUID,
     email: FetchedEmail,
     labels: dict[uuid.UUID, uuid.UUID],
-) -> None:
-    """Store the email's metadata, add the matched labels and bump the scan's counters — one
-    transaction. An email another scan stored meanwhile counts as skipped."""
+) -> list[uuid.UUID]:
+    """Store the email's metadata, add the matched labels, queue runs of the processors on them and
+    bump the scan's counters — one transaction. An email another scan stored meanwhile counts as
+    skipped. Returns the queued runs, to publish."""
     row = (
         insert(Email)
         .values(
@@ -395,19 +448,29 @@ async def _store(
         .returning(Email.id)
     )
     email_id = (await session.execute(row)).scalar_one_or_none()
-    applied = 0
+    added: list[uuid.UUID] = []
+    runs: list[uuid.UUID] = []
     if email_id is not None and labels:
-        result = await session.execute(
-            insert(EmailLabel)
-            .values(
-                [
-                    {"email_id": email_id, "label_id": label_id, "filter_id": filter_id, "scan_id": scan_id}
-                    for label_id, filter_id in labels.items()
-                ]
+        added = list(
+            await session.scalars(
+                insert(EmailLabel)
+                .values(
+                    [
+                        {
+                            "email_id": email_id,
+                            "label_id": label_id,
+                            "filter_id": filter_id,
+                            "scan_id": scan_id,
+                        }
+                        for label_id, filter_id in labels.items()
+                    ]
+                )
+                .on_conflict_do_nothing()
+                .returning(EmailLabel.label_id)
             )
-            .on_conflict_do_nothing()
         )
-        applied = result.rowcount or 0
+        runs = await create_runs(session, email_id, added)
+    applied = len(added)
     await session.execute(
         update(Scan)
         .where(Scan.id == scan_id)
@@ -420,3 +483,4 @@ async def _store(
         )
     )
     await session.commit()
+    return runs

@@ -61,6 +61,8 @@ class Filter(TimestampMixin, Base):
         index=True,
     )
     status_changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Set on built-in defaults (see app.defaults): they can be edited and deactivated, but not deleted.
+    default_key: Mapped[str | None] = mapped_column(String(100), unique=True)
 
     label: Mapped[Label] = relationship(lazy="joined")
     mailbox_types: Mapped[list[FilterMailboxType]] = relationship(

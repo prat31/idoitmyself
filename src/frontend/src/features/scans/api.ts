@@ -10,7 +10,7 @@ export type Scan = {
   inbox_id: string
   inbox_name: string
   inbox_email_address: string
-  /** scheduled: every interval (:00 and :30), from where the inbox's last scheduled scan stopped;
+  /** scheduled: at each boundary of the scan interval, from where the inbox's last scheduled scan stopped;
    *  adhoc: chosen filters over a past range, requested from the Scans page. */
   kind: ScanKind
   status: ScanStatus
@@ -87,16 +87,36 @@ export function useCancelScan() {
   })
 }
 
-export type ScanSchedule = { interval_minutes: number; next_run_at: string }
+/** Scheduled scans run every `interval_minutes` (one of `intervals`), counted from midnight in
+ *  `timezone` (a server setting). */
+export type ScanSchedule = { interval_minutes: number; intervals: number[]; timezone: string; next_run_at: string }
+
+const scheduleKey = [...scanKeys.all, 'schedule'] as const
 
 /** The scheduled-scan interval and the next tick. Refetched once that tick has passed. */
 export function useScanSchedule() {
   return useQuery({
-    queryKey: [...scanKeys.all, 'schedule'],
+    queryKey: scheduleKey,
     queryFn: () => apiFetch<ScanSchedule>('/scans/schedule'),
     refetchInterval: (query) => {
       const next = query.state.data?.next_run_at
       return next ? Math.max(5_000, new Date(next).getTime() - Date.now() + 1_000) : 30_000
+    },
+  })
+}
+
+/** Changes how often scheduled scans run; applies from the next tick. */
+export function useUpdateScanSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (intervalMinutes: number) =>
+      apiFetch<ScanSchedule>('/scans/schedule', {
+        method: 'PUT',
+        body: JSON.stringify({ interval_minutes: intervalMinutes }),
+      }),
+    onSuccess: (schedule) => {
+      queryClient.setQueryData(scheduleKey, schedule)
+      return queryClient.invalidateQueries({ queryKey: ['dashboard', 'status'] })
     },
   })
 }

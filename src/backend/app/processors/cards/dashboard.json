@@ -1,0 +1,109 @@
+{
+  "default_range": "12m",
+  "widgets": [
+    {
+      "id": "total-due",
+      "type": "stat",
+      "title": "Total due",
+      "description": "Sum of the statements' total due",
+      "width": "third",
+      "query": { "dataset": "cards.statements", "measure": "total_due", "agg": "sum" }
+    },
+    {
+      "id": "spend",
+      "type": "stat",
+      "title": "Card spend",
+      "description": "Purchases and EMIs",
+      "width": "third",
+      "query": {
+        "dataset": "cards.transactions",
+        "measure": "amount",
+        "agg": "sum",
+        "filters": [{ "field": "kind", "values": ["purchase", "emi"] }]
+      }
+    },
+    {
+      "id": "fees",
+      "type": "stat",
+      "title": "Fees & charges",
+      "description": "Interest, fees and GST on them",
+      "width": "third",
+      "query": { "dataset": "cards.statements", "measure": "fees", "agg": "sum" }
+    },
+    {
+      "id": "due-by-month",
+      "type": "composition",
+      "title": "Total due by month",
+      "description": "By statement date, per card",
+      "width": "full",
+      "query": {
+        "dataset": "cards.statements",
+        "measure": "total_due",
+        "agg": "sum",
+        "bucket": "month",
+        "group_by": "card"
+      }
+    },
+    {
+      "id": "spend-by-kind",
+      "type": "composition",
+      "title": "Spend by kind",
+      "description": "Debits per month: purchases, EMIs and fees",
+      "width": "half",
+      "query": {
+        "dataset": "cards.transactions",
+        "measure": "amount",
+        "agg": "sum",
+        "bucket": "month",
+        "group_by": "kind",
+        "filters": [{ "field": "direction", "values": ["debit"] }]
+      }
+    },
+    {
+      "id": "spend-by-category",
+      "type": "breakdown",
+      "title": "Spend by category",
+      "description": "The bank's merchant categories",
+      "width": "half",
+      "query": {
+        "dataset": "cards.transactions",
+        "measure": "amount",
+        "agg": "sum",
+        "group_by": "category",
+        "limit": 8,
+        "filters": [{ "field": "kind", "values": ["purchase"] }]
+      }
+    },
+    {
+      "id": "top-merchants",
+      "type": "breakdown",
+      "title": "Top merchants",
+      "width": "half",
+      "query": {
+        "dataset": "cards.transactions",
+        "measure": "amount",
+        "agg": "sum",
+        "group_by": "description",
+        "limit": 10,
+        "filters": [{ "field": "kind", "values": ["purchase"] }]
+      }
+    },
+    {
+      "id": "due-by-card",
+      "type": "breakdown",
+      "title": "Total due by card",
+      "width": "half",
+      "query": { "dataset": "cards.statements", "measure": "total_due", "agg": "sum", "group_by": "card" }
+    },
+    {
+      "id": "statements",
+      "type": "table",
+      "title": "Statements",
+      "width": "full",
+      "query": {
+        "dataset": "cards.statements",
+        "columns": ["statement_date", "card", "due_date", "total_due", "minimum_due", "fees", "available_credit"]
+      }
+    }
+  ]
+}

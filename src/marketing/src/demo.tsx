@@ -23,7 +23,7 @@ function Demo() {
       <div className="flex shrink-0 items-center justify-center gap-2 border-b border-warning/30 bg-warning px-4 py-2 text-center text-xs font-medium text-warning-foreground shadow-xs">
         <CircleHelp className="size-3.5 shrink-0" />
         <span>
-          <strong>Demo mode.</strong> This is a read-only preview with mock data.
+          <strong>Demo mode.</strong> A read-only preview with mock data.
         </span>
       </div>
       <div className="min-h-0 flex-1 [&>div]:h-full">

@@ -10,7 +10,7 @@ from app.schemas.label import LabelCreate, LabelRead, LabelUpdate
 from app.schemas.stats import EmailPage, LabelStats
 from app.services import labels as label_service
 from app.services import stats as stats_service
-from app.services.labels import LabelInUseError, LabelNameTakenError
+from app.services.labels import DefaultLabelError, LabelInUseError, LabelNameTakenError
 from app.services.stats import StatsQueryError
 
 router = APIRouter(prefix="/labels", tags=["labels"])
@@ -80,9 +80,12 @@ async def update_label(label_id: uuid.UUID, data: LabelUpdate, session: SessionD
 async def delete_label(label_id: uuid.UUID, session: SessionDep):
     try:
         deleted = await label_service.delete_label(session, label_id)
+    except DefaultLabelError:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Built-in labels can't be deleted") from None
     except LabelInUseError:
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "Filters still add this label; change or delete them first"
+            status.HTTP_409_CONFLICT,
+            "Filters add this label or processors run on it; change or delete them first",
         ) from None
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Label not found")
